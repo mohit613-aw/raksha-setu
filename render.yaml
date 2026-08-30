@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: raksha-setu
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: ADMIN_EMAILS
+        value: admin@disasterhub.gov.in,admin@rakshasetu.in

@@ -1,0 +1,2716 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-50">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raksha Setu — Emergency Operations & Early-Warning Command Platform</title>
+
+    <!-- Performance Optimizations: Preconnect Tile CDN -->
+    <link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin>
+    <link rel="dns-prefetch" href="https://tile.openstreetmap.org">
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        command: {
+                            950: '#060d17',
+                            900: '#0c1524',
+                            800: '#162238',
+                            700: '#1e293b',
+                        },
+                        brand: {
+                            500: '#f97316',
+                            600: '#ea580c',
+                            700: '#c2410c',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['"Plus Jakarta Sans"', 'system-ui', '-apple-system', 'sans-serif'],
+                        mono: ['"JetBrains Mono"', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Leaflet.js CDN + Leaflet Heatmap Plugin -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+    <script>
+        // Role guard: redirect to role-selector if no role has been chosen
+        if (!localStorage.getItem("selected_role")) {
+            window.location.replace("login.html");
+        }
+    </script>
+</head>
+
+<body
+    class="h-full flex flex-col font-sans text-slate-800 antialiased selection:bg-orange-100 selection:text-orange-900">
+
+    <!-- Offline Alert Banner -->
+    <div id="offline-banner"
+        class="hidden bg-gradient-to-r from-amber-600 via-orange-600 to-amber-600 text-white font-bold px-6 py-2.5 flex items-center justify-between shadow-lg z-50 transition-all">
+        <div class="flex items-center gap-2.5 text-xs md:text-sm">
+            <span class="p-1 bg-black/20 rounded-md">📡</span>
+            <span><strong>OFFLINE MODE ACTIVE:</strong> No internet connection. Reports are queued in local cache and
+                will automatically sync on reconnect.</span>
+        </div>
+        <div class="flex items-center gap-3">
+            <span id="offline-queue-badge"
+                class="text-xs bg-slate-950 text-white px-3 py-1 rounded-full font-mono font-bold">0 Pending</span>
+            <button onclick="syncOfflineQueue()"
+                class="text-xs bg-white text-slate-950 hover:bg-slate-100 px-3.5 py-1 rounded-lg font-extrabold shadow-sm transition">
+                ⚡ Force Sync
+            </button>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast"
+        class="hidden fixed bottom-6 right-6 z-50 px-5 py-3.5 rounded-2xl shadow-2xl text-white font-semibold text-xs md:text-sm transition-all duration-300 transform">
+    </div>
+
+    <!-- ==================== TOP COMMAND HEADER ==================== -->
+    <header
+        class="h-16 bg-command-900 border-b border-command-700 text-white px-4 md:px-8 flex items-center justify-between z-30 shrink-0 shadow-md">
+        <!-- Left: Logo & Status -->
+        <div class="flex items-center gap-4">
+            <button onclick="toggleMobileSidebar()"
+                class="md:hidden p-2 rounded-xl text-slate-400 hover:text-white hover:bg-command-800 transition">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+            </button>
+
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl overflow-hidden shadow-lg shadow-orange-500/30 shrink-0 ring-2 ring-orange-500/40">
+                    <img src="/assets/logo.jpg" alt="Raksha Setu Logo" class="w-full h-full object-cover" onerror="this.src='logo.jpg'; this.onerror=function(){this.style.display='none'; this.parentElement.innerHTML='<div class=\'w-full h-full bg-gradient-to-br from-orange-500 via-red-600 to-blue-600 flex items-center justify-center text-white text-xl\'>🚨</div>';}">
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="font-extrabold text-white text-base tracking-tight leading-none">Raksha Setu</span>
+                        <span id="sse-status-pill"
+                            class="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase tracking-widest flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                            <span>Live SSE</span>
+                        </span>
+                    </div>
+                    <p class="text-[11px] font-medium text-slate-400 mt-0.5">National Early-Warning &amp; Resource
+                        Coordination System</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center: Search & Live IST Clock -->
+        <div class="hidden lg:flex items-center gap-4">
+            <div class="relative w-80">
+                <svg class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" fill="none"
+                    stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input type="text" id="global-search" oninput="handleGlobalSearch(this.value)"
+                    placeholder="Search incidents, relief camps, resources... (/)"
+                    class="w-full bg-command-800 border border-command-700 rounded-xl pl-9 pr-3.5 py-1.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition">
+            </div>
+
+            <div
+                class="flex items-center gap-2 px-3 py-1.5 bg-command-800 border border-command-700 rounded-xl text-xs font-mono text-slate-300">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span id="ist-clock">IST --:--:--</span>
+            </div>
+        </div>
+
+        <!-- Right: Auth Profile, Notifications & Action Buttons -->
+        <div class="flex items-center gap-3">
+            <div id="auth-authenticated" class="flex items-center gap-3">
+
+                <!-- Notification Bell -->
+                <div class="relative" id="notification-bell-wrapper">
+                    <button id="btn-notification-bell" onclick="toggleNotificationPanel()" title="Notifications"
+                        class="relative p-2 text-slate-400 hover:text-white hover:bg-command-800 rounded-xl transition">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                        </svg>
+                        <span id="notification-badge"
+                            class="hidden absolute -top-1 -right-1 min-w-[16px] h-4 px-0.5 flex items-center justify-center rounded-full bg-red-500 text-white font-mono font-black text-[9px] shadow-sm">0</span>
+                    </button>
+
+                    <!-- Notification Dropdown Panel -->
+                    <div id="notification-panel"
+                        class="hidden absolute right-0 top-full mt-2 w-80 md:w-96 bg-white border border-slate-200 rounded-2xl shadow-2xl shadow-slate-900/15 z-50 overflow-hidden">
+                        <!-- Panel Header -->
+                        <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
+                            <div class="flex items-center gap-2">
+                                <span class="text-sm font-extrabold text-slate-900">🔔 Notifications</span>
+                                <span id="notification-panel-count"
+                                    class="px-1.5 py-0.5 rounded-full bg-red-100 text-red-800 text-[10px] font-black hidden">0
+                                    new</span>
+                            </div>
+                            <button onclick="markAllNotificationsRead()"
+                                class="text-[11px] font-bold text-blue-600 hover:text-blue-800 transition">
+                                Mark all read
+                            </button>
+                        </div>
+                        <!-- Notification List -->
+                        <div id="notification-list" class="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                            <div class="p-8 text-center text-slate-400 text-xs">Loading notifications...</div>
+                        </div>
+                        <!-- Footer -->
+                        <div class="px-4 py-2.5 border-t border-slate-100 bg-slate-50 text-center">
+                            <button onclick="switchTab('user-dashboard'); toggleNotificationPanel()"
+                                class="text-xs font-bold text-blue-600 hover:text-blue-800 transition">
+                                View all in My Dashboard →
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- User Profile Card in Header -->
+                <div onclick="openModal('modal-user-profile')" title="View My Account Details"
+                    class="flex items-center gap-2 bg-command-800 hover:bg-command-700 border border-command-700 px-3 py-1.5 rounded-xl cursor-pointer transition shadow-sm">
+                    <img id="user-avatar" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='50' fill='%232563eb'/><text x='50' y='62' font-size='40' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='bold'>👤</text></svg>"
+                        alt="User" class="w-6 h-6 rounded-full border border-slate-500 object-cover">
+                    <div class="flex flex-col text-left">
+                        <span id="user-display-name"
+                            class="text-xs font-bold text-white leading-tight">Citizen User</span>
+                        <div class="flex items-center gap-1">
+                            <span id="user-role-badge"
+                                class="text-[9px] font-black uppercase px-1 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">USER</span>
+                        </div>
+                    </div>
+                </div>
+
+                <button onclick="logout()" title="Switch Role"
+                    class="p-2 text-slate-400 hover:text-orange-400 hover:bg-command-800 rounded-xl transition text-xs font-bold flex items-center gap-1">
+                    <span>🔄</span>
+                    <span class="hidden sm:inline">Switch Role</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- App Body: Sidebar + Main Content -->
+    <div class="flex flex-1 overflow-hidden relative">
+
+        <!-- ==================== SIDEBAR NAVIGATION ==================== -->
+        <aside id="app-sidebar"
+            class="w-64 bg-white border-r border-slate-200 flex flex-col justify-between p-4 shrink-0 transition-all duration-300 md:relative absolute inset-y-0 left-0 z-40 md:translate-x-0 -translate-x-full shadow-xl md:shadow-none">
+            <div class="space-y-5 overflow-y-auto">
+                <!-- Group 1: Citizen Emergency & Public Safety -->
+                <div>
+                    <span
+                        class="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 px-3 block mb-2">Emergency Services</span>
+                    <nav class="space-y-1">
+                        <button id="nav-overview" onclick="switchTab('overview')"
+                            class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-bold text-xs transition bg-blue-600 text-white shadow-sm shadow-blue-500/20">
+                            <span class="text-base">🚨</span>
+                            <span>Emergency Hub</span>
+                        </button>
+                        <button id="nav-map" onclick="switchTab('map')"
+                            class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-semibold text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition">
+                            <span class="text-base">🗺️</span>
+                            <span>Live Safe Map</span>
+                        </button>
+                        <button id="nav-shelters" onclick="switchTab('shelters')"
+                            class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-semibold text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition">
+                            <span class="text-base">🏕️</span>
+                            <span>Relief Camps</span>
+                        </button>
+                        <button id="nav-alerts" onclick="switchTab('alerts')"
+                            class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-semibold text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition">
+                            <span class="text-base">📢</span>
+                            <span>Disaster Alerts</span>
+                        </button>
+                        <button id="nav-missing-persons" onclick="switchTab('missing-persons')"
+                            class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-semibold text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition">
+                            <span class="text-base">👥</span>
+                            <span>Missing Persons</span>
+                        </button>
+                        <button id="nav-sos" onclick="switchTab('sos')"
+                            class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-bold text-xs text-red-600 bg-red-50 hover:bg-red-100 transition border border-red-100">
+                            <span class="text-base">📞</span>
+                            <span>24×7 Helplines & SOS</span>
+                        </button>
+                        <button onclick="openModal('modal-offline-sms')"
+                            class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-bold text-xs text-amber-700 bg-amber-50 hover:bg-amber-100 transition border border-amber-200">
+                            <span class="text-base">📱</span>
+                            <span>Offline SMS SOS</span>
+                        </button>
+                    </nav>
+                </div>
+
+                <!-- Group 2: Authority Operations & Logistics (HIDDEN for Citizen / USER) -->
+                <div id="nav-group-ops" class="hidden">
+                    <span
+                        class="text-[10px] font-extrabold uppercase tracking-wider text-purple-600 px-3 block mb-2">Authority Command & Ops</span>
+                    <nav class="space-y-1">
+                        <button id="nav-disasters" onclick="switchTab('disasters')"
+                            class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-semibold text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition">
+                            <span class="text-base">📋</span>
+                            <span>Incident Priority Queue</span>
+                        </button>
+                        <button id="nav-verification" onclick="switchTab('verification')"
+                            class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-semibold text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition">
+                            <span class="text-base">🤖</span>
+                            <span>AI Verification Queue</span>
+                        </button>
+                        <button id="nav-resources" onclick="switchTab('resources')"
+                            class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-semibold text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition">
+                            <span class="text-base">📦</span>
+                            <span>Supply Chain Logistics</span>
+                        </button>
+                    </nav>
+                </div>
+
+                <!-- Group 3: Admin Governance (HIDDEN for Citizen & Authority) -->
+                <div id="nav-group-admin" class="hidden">
+                    <span
+                        class="text-[10px] font-extrabold uppercase tracking-wider text-blue-600 px-3 block mb-2">Admin
+                        Governance</span>
+                    <nav class="space-y-1">
+                        <button id="nav-admin-authorities" onclick="switchTab('admin-authorities')"
+                            class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-semibold text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition">
+                            <span class="text-base">⚡</span>
+                            <span class="flex-1 text-left">Authority Applications</span>
+                            <span id="badge-pending-authorities"
+                                class="hidden px-1.5 py-0.5 rounded-full bg-amber-500 text-white font-mono text-[9px] font-black">0</span>
+                        </button>
+                    </nav>
+                </div>
+            </div>
+
+            <!-- Sidebar Footer -->
+            <div class="pt-4 border-t border-slate-200 space-y-3">
+                <div id="sync-card" class="hidden p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs">
+                    <div class="flex items-center justify-between font-bold text-amber-900">
+                        <span>Offline Actions</span>
+                        <span id="sync-count"
+                            class="px-1.5 py-0.5 rounded bg-amber-200 text-amber-900 font-mono text-[10px]">0</span>
+                    </div>
+                    <button onclick="syncOfflineQueue()"
+                        class="w-full mt-2 bg-amber-600 hover:bg-amber-700 text-white font-bold py-1.5 rounded-xl transition text-xs shadow-sm">
+                        Sync With Server
+                    </button>
+                </div>
+
+                <div class="flex items-center justify-between px-2 text-[11px] text-slate-400">
+                    <span class="flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                        <span>IMD Poller Active</span>
+                    </span>
+                    <span class="font-mono text-[10px]">v2.2</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- ==================== MAIN WORKSPACE ==================== -->
+        <main class="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-50">
+
+            <!-- ==================== TAB 1: OPERATIONS OVERVIEW / EMERGENCY HUB ==================== -->
+            <div id="tab-overview" class="space-y-6 max-w-7xl mx-auto">
+                <div id="overview-alerts-banner" class="hidden space-y-3"></div>
+
+                <!-- High-Visibility Emergency Quick-Action Grid (Citizen-First Design with BIG ICONS) -->
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-xl md:text-2xl font-black text-slate-950 tracking-tight flex items-center gap-2">
+                                <span class="text-2xl">⚡</span>
+                                <span>Emergency Quick-Actions</span>
+                            </h2>
+                            <p class="text-xs text-slate-500 font-medium">Instant access to life-saving tools during disaster events</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <!-- 1. Report Emergency (SOS) -->
+                        <button onclick="if (verifyUserCanReport()) openModal('modal-report-disaster')"
+                            class="p-6 bg-gradient-to-br from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white rounded-3xl shadow-xl shadow-red-500/25 transition-all transform hover:-translate-y-1 text-left flex items-start justify-between group">
+                            <div class="space-y-2 pr-2">
+                                <span class="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-black/25 text-red-100">Immediate Action</span>
+                                <h3 class="text-xl font-black text-white leading-tight">Report Incident (SOS)</h3>
+                                <p class="text-xs text-red-100/90 font-medium">Request rescue or report flood, fire, landslide with GPS</p>
+                                <div class="pt-2 text-xs font-black text-white flex items-center gap-1 group-hover:underline">
+                                    <span>Send SOS Report</span> <span>&rarr;</span>
+                                </div>
+                            </div>
+                            <div class="text-5xl shrink-0 p-2 bg-white/10 rounded-2xl group-hover:scale-110 transition-transform">
+                                🚨
+                            </div>
+                        </button>
+
+                        <!-- 2. Live Safe Map -->
+                        <button onclick="switchTab('map')"
+                            class="p-6 bg-gradient-to-br from-blue-600 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 text-white rounded-3xl shadow-xl shadow-blue-500/25 transition-all transform hover:-translate-y-1 text-left flex items-start justify-between group">
+                            <div class="space-y-2 pr-2">
+                                <span class="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-black/25 text-blue-100">Live Situation</span>
+                                <h3 class="text-xl font-black text-white leading-tight">Live Emergency Map</h3>
+                                <p class="text-xs text-blue-100/90 font-medium">View active hazard zones, safe perimeters & relief pins</p>
+                                <div class="pt-2 text-xs font-black text-white flex items-center gap-1 group-hover:underline">
+                                    <span>Open Interactive Map</span> <span>&rarr;</span>
+                                </div>
+                            </div>
+                            <div class="text-5xl shrink-0 p-2 bg-white/10 rounded-2xl group-hover:scale-110 transition-transform">
+                                🗺️
+                            </div>
+                        </button>
+
+                        <!-- 3. Find Relief Camps & Shelters -->
+                        <button onclick="switchTab('shelters')"
+                            class="p-6 bg-gradient-to-br from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white rounded-3xl shadow-xl shadow-emerald-500/25 transition-all transform hover:-translate-y-1 text-left flex items-start justify-between group">
+                            <div class="space-y-2 pr-2">
+                                <span class="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-black/25 text-emerald-100">Safe Shelter</span>
+                                <h3 class="text-xl font-black text-white leading-tight">Relief Camps</h3>
+                                <p class="text-xs text-emerald-100/90 font-medium">Find nearest open shelter camps, bed count & clean water</p>
+                                <div class="pt-2 text-xs font-black text-white flex items-center gap-1 group-hover:underline">
+                                    <span>Find Nearest Camp</span> <span>&rarr;</span>
+                                </div>
+                            </div>
+                            <div class="text-5xl shrink-0 p-2 bg-white/10 rounded-2xl group-hover:scale-110 transition-transform">
+                                🏕️
+                            </div>
+                        </button>
+
+                        <!-- 4. Weather & Disaster Alerts -->
+                        <button onclick="switchTab('alerts')"
+                            class="p-6 bg-gradient-to-br from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-3xl shadow-xl shadow-amber-500/25 transition-all transform hover:-translate-y-1 text-left flex items-start justify-between group">
+                            <div class="space-y-2 pr-2">
+                                <span class="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-black/25 text-amber-100">Live Feed</span>
+                                <h3 class="text-xl font-black text-white leading-tight">Disaster Alerts</h3>
+                                <p class="text-xs text-amber-100/90 font-medium">IMD cyclone, heavy rain warnings & evacuation notices</p>
+                                <div class="pt-2 text-xs font-black text-white flex items-center gap-1 group-hover:underline">
+                                    <span>View Active Alerts</span> <span>&rarr;</span>
+                                </div>
+                            </div>
+                            <div class="text-5xl shrink-0 p-2 bg-white/10 rounded-2xl group-hover:scale-110 transition-transform">
+                                📢
+                            </div>
+                        </button>
+
+                        <!-- 5. Missing Persons Locator -->
+                        <button onclick="switchTab('missing-persons')"
+                            class="p-6 bg-gradient-to-br from-purple-600 to-indigo-800 hover:from-purple-500 hover:to-indigo-700 text-white rounded-3xl shadow-xl shadow-purple-500/25 transition-all transform hover:-translate-y-1 text-left flex items-start justify-between group">
+                            <div class="space-y-2 pr-2">
+                                <span class="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-black/25 text-purple-100">Family Finder</span>
+                                <h3 class="text-xl font-black text-white leading-tight">Missing Persons</h3>
+                                <p class="text-xs text-purple-100/90 font-medium">Search registry or register a missing family member</p>
+                                <div class="pt-2 text-xs font-black text-white flex items-center gap-1 group-hover:underline">
+                                    <span>Search or Register</span> <span>&rarr;</span>
+                                </div>
+                            </div>
+                            <div class="text-5xl shrink-0 p-2 bg-white/10 rounded-2xl group-hover:scale-110 transition-transform">
+                                👥
+                            </div>
+                        </button>
+
+                        <!-- 6. 24x7 Helplines & SOS -->
+                        <button onclick="switchTab('sos')"
+                            class="p-6 bg-gradient-to-br from-rose-600 to-pink-700 hover:from-rose-500 hover:to-pink-600 text-white rounded-3xl shadow-xl shadow-rose-500/25 transition-all transform hover:-translate-y-1 text-left flex items-start justify-between group">
+                            <div class="space-y-2 pr-2">
+                                <span class="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-black/25 text-rose-100">Toll-Free 24x7</span>
+                                <h3 class="text-xl font-black text-white leading-tight">24×7 Helplines</h3>
+                                <p class="text-xs text-rose-100/90 font-medium">Direct toll-free calling: 112 (All SOS), 1078 (NDMA), 108</p>
+                                <div class="pt-2 text-xs font-black text-white flex items-center gap-1 group-hover:underline">
+                                    <span>View Emergency Contacts</span> <span>&rarr;</span>
+                                </div>
+                            </div>
+                            <div class="text-5xl shrink-0 p-2 bg-white/10 rounded-2xl group-hover:scale-110 transition-transform">
+                                📞
+                            </div>
+                        </button>
+
+                        <!-- 7. Offline SMS Emergency SOS -->
+                        <button onclick="openModal('modal-offline-sms')"
+                            class="p-6 bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 hover:from-slate-800 hover:to-slate-700 text-white rounded-3xl shadow-xl shadow-slate-900/30 transition-all transform hover:-translate-y-1 text-left flex items-start justify-between group border border-slate-700 sm:col-span-2 lg:col-span-3">
+                            <div class="space-y-2 pr-2">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <span class="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-orange-500/20 text-orange-300 border border-orange-500/30">Offline 2G Cellular Network</span>
+                                    <span class="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Zero Internet Required</span>
+                                </div>
+                                <h3 class="text-xl md:text-2xl font-black text-white leading-tight">📡 Offline SMS SOS Dispatch</h3>
+                                <p class="text-xs md:text-sm text-slate-300 font-medium">When 4G/5G/Wi-Fi is down during floods or cyclones, send auto-formatted GPS distress SMS directly to 112, 1078 &amp; family via basic 2G network.</p>
+                                <div class="pt-2 text-xs md:text-sm font-black text-orange-400 flex items-center gap-1 group-hover:underline">
+                                    <span>Open Offline SMS Dispatcher</span> <span>&rarr;</span>
+                                </div>
+                            </div>
+                            <div class="text-5xl shrink-0 p-3 bg-white/10 rounded-2xl group-hover:scale-110 transition-transform">
+                                📱
+                            </div>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- High-Level Situation Summary Strip -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="p-5 bg-white rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+                        <div>
+                            <span class="text-[11px] font-black text-slate-400 uppercase tracking-wider">Active Hazards</span>
+                            <div id="stat-active-disasters" class="text-3xl font-black text-slate-950 font-mono mt-1">0</div>
+                            <div class="text-xs text-red-600 font-bold mt-0.5"><span id="stat-critical-count">0</span> Critical Priority</div>
+                        </div>
+                        <span class="p-4 bg-red-50 text-red-600 rounded-2xl text-3xl">⚠️</span>
+                    </div>
+
+                    <div class="p-5 bg-white rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+                        <div>
+                            <span class="text-[11px] font-black text-slate-400 uppercase tracking-wider">Open Relief Camps</span>
+                            <div id="stat-open-shelters" class="text-3xl font-black text-slate-950 font-mono mt-1">0</div>
+                            <div class="text-xs text-emerald-700 font-bold mt-0.5"><span id="stat-shelter-bed-utilization">0%</span> Bed Occupancy</div>
+                        </div>
+                        <span class="p-4 bg-emerald-50 text-emerald-600 rounded-2xl text-3xl">🏕️</span>
+                    </div>
+
+                    <div class="p-5 bg-white rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+                        <div>
+                            <span class="text-[11px] font-black text-slate-400 uppercase tracking-wider">Public Weather Warnings</span>
+                            <div id="stat-active-alerts" class="text-3xl font-black text-slate-950 font-mono mt-1">0</div>
+                            <div class="text-xs text-amber-600 font-bold mt-0.5">Active Early-Warning Bulletins</div>
+                        </div>
+                        <span class="p-4 bg-amber-50 text-amber-600 rounded-2xl text-3xl">📢</span>
+                    </div>
+                </div>
+
+                <!-- Situation Map Section (Clean & Prominent) -->
+                <div class="command-card p-5 space-y-3 flex flex-col bg-white">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2.5">
+                            <span class="p-2 bg-blue-100 text-blue-700 rounded-xl text-lg">🗺️</span>
+                            <div>
+                                <h3 class="font-extrabold text-slate-950 text-base">Live GIS Emergency & Safe Zones Map</h3>
+                                <p class="text-xs text-slate-400 mt-0.5">Real-time coordinates of active emergencies and relief points across India</p>
+                            </div>
+                        </div>
+                        <button onclick="switchTab('map')"
+                            class="px-3.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-xl text-xs font-bold transition flex items-center gap-1.5">
+                            <span>Open Full Heatmap</span> &rarr;
+                        </button>
+                    </div>
+                    <div class="w-full rounded-2xl overflow-hidden border border-slate-200 shadow-lg relative" style="height: 440px;">
+                        <div id="overview-map" style="width: 100%; height: 100%;"></div>
+                    </div>
+                </div>
+
+                <!-- Hidden for Citizens / Shown for Authority & Admin Roles only -->
+                <div id="overview-authority-panels" class="hidden space-y-6">
+                    <div class="border-t border-slate-200 pt-6">
+                        <div class="flex items-center gap-2 mb-4">
+                            <span class="text-lg">🛡️</span>
+                            <h3 class="font-black text-slate-900 text-base uppercase tracking-wider">Authority Command Feeds</h3>
+                        </div>
+
+                        <!-- 2-Column Split: Situation Map & Live Incident Activity -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div class="command-card p-5 space-y-4 flex flex-col bg-white">
+                                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                                    <h3 class="font-extrabold text-slate-950 text-sm">Incident Priority Queue</h3>
+                                    <button onclick="switchTab('disasters')"
+                                        class="text-xs font-bold text-blue-600 hover:underline">All Records &rarr;</button>
+                                </div>
+                                <div id="overview-recent-disasters" class="space-y-2.5 overflow-y-auto max-h-80 pr-1">
+                                    <div class="p-8 text-center text-slate-400 text-xs">Loading incident feed...</div>
+                                </div>
+                            </div>
+
+                            <div class="command-card p-5 space-y-4 flex flex-col bg-white">
+                                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                                    <h3 class="font-extrabold text-slate-950 text-sm">Urgent Supply Requests in Queue</h3>
+                                    <button onclick="switchTab('resources')"
+                                        class="text-xs font-bold text-blue-600 hover:underline">Logistics Center &rarr;</button>
+                                </div>
+                                <div id="overview-requests-list" class="space-y-3">
+                                    <div class="p-6 text-center text-slate-400 text-xs">Loading supply pipeline...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ==================== TAB 2: LIVE GIS & HEATMAP ==================== -->
+            <div id="tab-map" class="hidden space-y-4 max-w-7xl mx-auto">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+                    <div>
+                        <h1 class="text-xl md:text-2xl font-extrabold text-slate-950 tracking-tight">Geospatial
+                            Emergency Heatmap & GIS Center</h1>
+                        <p class="text-xs text-slate-500">Live density heatmaps generated dynamically from incident
+                            coordinates and severity weights.</p>
+                    </div>
+                    <!-- Quick Region & Mode Jumps -->
+                    <div class="flex flex-wrap items-center gap-1.5">
+                        <!-- Heatmap / Marker Mode Switcher -->
+                        <div class="flex items-center bg-slate-200 rounded-lg p-0.5 text-xs font-bold mr-2">
+                            <button id="map-mode-both" onclick="setMapVisualMode('both')"
+                                class="px-2.5 py-1 rounded-md bg-white text-slate-900 shadow-sm transition">Combined</button>
+                            <button id="map-mode-heat" onclick="setMapVisualMode('heat')"
+                                class="px-2.5 py-1 rounded-md text-slate-600 hover:text-slate-900 transition">🔥 Heatmap
+                                Only</button>
+                            <button id="map-mode-markers" onclick="setMapVisualMode('markers')"
+                                class="px-2.5 py-1 rounded-md text-slate-600 hover:text-slate-900 transition">📌 Pins
+                                Only</button>
+                        </div>
+                        <span class="text-[11px] font-bold text-slate-400 mr-1">Region:</span>
+                        <button onclick="panMapTo(10.1076, 76.3516, 9)"
+                            class="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 transition">Kerala</button>
+                        <button onclick="panMapTo(26.1445, 91.7362, 8)"
+                            class="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 transition">Assam</button>
+                        <button onclick="panMapTo(19.8135, 85.8312, 8)"
+                            class="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 transition">Odisha</button>
+                        <button onclick="panMapTo(28.6139, 77.2090, 9)"
+                            class="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 transition">Delhi-NCR</button>
+                        <button onclick="focusIndiaMap(map)"
+                            class="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition shadow-sm">🇮🇳
+                            Full India Focus</button>
+                    </div>
+                </div>
+
+                <!-- Category 10: India-Focused Heatmap Filters Bar -->
+                <div
+                    class="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
+                    <div class="flex flex-wrap items-center gap-3">
+                        <!-- Hazard Filter -->
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-slate-500 font-bold font-mono text-[11px]">🌪️ Hazard:</span>
+                            <select id="heatmap-filter-hazard" onchange="applyHeatmapFilters()"
+                                class="border border-slate-200 rounded-xl px-2.5 py-1.5 bg-slate-50 font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">All Hazards</option>
+                                <option value="Flood">Monsoon Flood</option>
+                                <option value="Cyclone">Cyclone / Storm</option>
+                                <option value="Landslide">Landslide / Mudflow</option>
+                                <option value="Cloudburst">Cloudburst / Urban Flood</option>
+                                <option value="Fire">Fire Incident</option>
+                                <option value="Earthquake">Earthquake</option>
+                                <option value="Heatwave">Heatwave</option>
+                            </select>
+                        </div>
+
+                        <!-- Severity Filter -->
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-slate-500 font-bold font-mono text-[11px]">⚠️ Severity:</span>
+                            <select id="heatmap-filter-severity" onchange="applyHeatmapFilters()"
+                                class="border border-slate-200 rounded-xl px-2.5 py-1.5 bg-slate-50 font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">All Severities</option>
+                                <option value="Critical">🔴 Critical Only</option>
+                                <option value="High">🟠 High</option>
+                                <option value="Medium">🟡 Medium</option>
+                                <option value="Low">🟢 Low / Advisory</option>
+                            </select>
+                        </div>
+
+                        <!-- State / Region Filter -->
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-slate-500 font-bold font-mono text-[11px]">📍 State / UT:</span>
+                            <select id="heatmap-filter-state" onchange="applyHeatmapFilters()"
+                                class="border border-slate-200 rounded-xl px-2.5 py-1.5 bg-slate-50 font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">All India</option>
+                                <option value="Kerala">Kerala</option>
+                                <option value="Assam">Assam</option>
+                                <option value="Odisha">Odisha</option>
+                                <option value="Maharashtra">Maharashtra</option>
+                                <option value="Gujarat">Gujarat</option>
+                                <option value="Uttarakhand">Uttarakhand</option>
+                                <option value="Himachal">Himachal Pradesh</option>
+                                <option value="West Bengal">West Bengal</option>
+                                <option value="Tamil Nadu">Tamil Nadu</option>
+                                <option value="Delhi">Delhi NCR</option>
+                            </select>
+                        </div>
+
+                        <!-- Timeframe Filter -->
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-slate-500 font-bold font-mono text-[11px]">📅 Range:</span>
+                            <select id="heatmap-filter-days" onchange="applyHeatmapFilters()"
+                                class="border border-slate-200 rounded-xl px-2.5 py-1.5 bg-slate-50 font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">All Active</option>
+                                <option value="1">Last 24 Hours</option>
+                                <option value="7">Last 7 Days</option>
+                                <option value="30">Last 30 Days</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Active Count Indicator & Reset -->
+                    <div class="flex items-center gap-3">
+                        <span id="heatmap-filter-count" class="text-slate-500 font-semibold font-mono text-[11px]">
+                            Rendering hotspots...
+                        </span>
+                        <button onclick="resetHeatmapFilters()"
+                            class="px-2.5 py-1 text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg font-bold text-[11px] transition">
+                            ↺ Reset
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Full Map Card with Floating Legend -->
+                <div class="command-card p-3 relative overflow-hidden rounded-3xl border border-slate-200 shadow-md flex flex-col" style="height: 540px;">
+                    <div
+                        class="absolute top-6 right-6 z-20 bg-white/95 backdrop-blur-md p-4 rounded-3xl border border-slate-200 shadow-2xl max-w-xs text-xs space-y-3">
+                        <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <span class="font-black text-slate-900 block text-[11px] uppercase tracking-wider">Map Signs &amp; Layers</span>
+                            <span class="text-[9px] font-black bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded uppercase font-mono">India Live</span>
+                        </div>
+
+                        <!-- Layer Visibility Checkboxes -->
+                        <div class="space-y-1.5 font-bold text-slate-800 text-[11px]">
+                            <label class="flex items-center gap-2 cursor-pointer hover:text-slate-950">
+                                <input type="checkbox" id="layer-heatmap" checked onchange="toggleGISLayers()"
+                                    class="rounded text-orange-600 focus:ring-0">
+                                <span class="flex items-center gap-1.5"><span
+                                        class="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-yellow-400 via-orange-500 to-red-600"></span>
+                                    Dynamic Heat Cloud</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer hover:text-slate-950">
+                                <input type="checkbox" id="layer-disasters" checked onchange="toggleGISLayers()"
+                                    class="rounded text-red-600 focus:ring-0">
+                                <span class="flex items-center gap-1.5"><span
+                                        class="w-2.5 h-2.5 rounded-full bg-red-600"></span> Disaster Hazard Pins</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer hover:text-slate-950">
+                                <input type="checkbox" id="layer-shelters" checked onchange="toggleGISLayers()"
+                                    class="rounded text-emerald-600 focus:ring-0">
+                                <span class="flex items-center gap-1.5"><span
+                                        class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Relief Camps (🏕️)</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer hover:text-slate-950">
+                                <input type="checkbox" id="layer-missing-persons" checked onchange="toggleGISLayers()"
+                                    class="rounded text-purple-600 focus:ring-0">
+                                <span class="flex items-center gap-1.5"><span
+                                        class="w-2.5 h-2.5 rounded-full bg-purple-600"></span> Missing Persons (👥)</span>
+                            </label>
+                        </div>
+
+                        <!-- Distinct Hazard Signs Reference Key -->
+                        <div class="pt-2 border-t border-slate-100 space-y-1.5">
+                            <span class="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Hazard Signs Key:</span>
+                            <div class="grid grid-cols-2 gap-1 text-[11px] font-semibold text-slate-700">
+                                <div class="flex items-center gap-1"><span>🌊</span> <span>Flood</span></div>
+                                <div class="flex items-center gap-1"><span>🌪️</span> <span>Cyclone</span></div>
+                                <div class="flex items-center gap-1"><span>⛰️</span> <span>Landslide</span></div>
+                                <div class="flex items-center gap-1"><span>🔥</span> <span>Fire</span></div>
+                                <div class="flex items-center gap-1"><span>🌧️</span> <span>Cloudburst</span></div>
+                                <div class="flex items-center gap-1"><span>☀️</span> <span>Heatwave</span></div>
+                                <div class="flex items-center gap-1"><span>🏚️</span> <span>Earthquake</span></div>
+                                <div class="flex items-center gap-1"><span>🏕️</span> <span>Shelter</span></div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Map div fills container height explicitly -->
+                    <div id="map" class="w-full rounded-2xl overflow-hidden" style="height: 100%; width: 100%; min-height: 500px;"></div>
+                </div>
+            </div>
+
+            <!-- ==================== TAB 2B: AI VERIFICATION QUEUE ==================== -->
+            <div id="tab-verification" class="space-y-6 max-w-7xl mx-auto hidden">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h1
+                            class="text-2xl md:text-3xl font-extrabold text-slate-950 tracking-tight flex items-center gap-3">
+                            <span class="p-2 bg-purple-100 text-purple-700 rounded-2xl text-xl">🤖</span>
+                            <span>AI Needs Verification & Duplicate Incident Queue</span>
+                        </h1>
+                        <p class="text-xs md:text-sm text-slate-500 mt-1">Multi-signal similarity engine analyzing
+                            spatial distance, time decay, hazard category, text NLP, and assistance needs for
+                            transparent authority decisions.</p>
+                    </div>
+                    <button onclick="loadVerificationQueue()"
+                        class="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold text-xs shadow-md shadow-purple-500/20 transition flex items-center gap-2">
+                        <span>🔄 Refresh Queue</span>
+                    </button>
+                </div>
+
+                <div id="recent-verification-result" class="hidden mb-6"></div>
+
+                <div id="verification-queue-list" class="space-y-4">
+                    <div class="command-card p-12 text-center text-slate-400 text-xs">Loading verification queue...
+                    </div>
+                </div>
+            </div>
+
+            <!-- ==================== TAB 3: DISASTER INCIDENTS ==================== -->
+            <div id="tab-disasters" class="space-y-6 max-w-7xl mx-auto hidden">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h1 class="text-2xl md:text-3xl font-extrabold text-slate-950 tracking-tight">Incident Priority
+                            Queue</h1>
+                        <p class="text-xs md:text-sm text-slate-500 mt-1">Operational incident log with multi-agency
+                            verification and status management.</p>
+                    </div>
+                    <button onclick="openModal('modal-report-disaster')"
+                        class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-md shadow-blue-500/20 transition flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                        </svg>
+                        <span>Report Incident</span>
+                    </button>
+                </div>
+
+                <div
+                    class="p-4 bg-white rounded-2xl border border-slate-200 flex flex-wrap items-center justify-between gap-4 shadow-sm">
+                    <div class="flex flex-wrap items-center gap-3">
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-bold text-slate-500">Status:</span>
+                            <select id="filter-disaster-status" onchange="loadDisasters()"
+                                class="text-xs border border-slate-200 rounded-xl px-3 py-1.5 bg-slate-50 font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">All Statuses</option>
+                                <option value="Reported">Reported</option>
+                                <option value="Verified">Verified</option>
+                                <option value="In Progress">In Progress</option>
+                                <option value="Resolved">Resolved</option>
+                            </select>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-bold text-slate-500">Severity:</span>
+                            <select id="filter-disaster-severity" onchange="loadDisasters()"
+                                class="text-xs border border-slate-200 rounded-xl px-3 py-1.5 bg-slate-50 font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">All Severities</option>
+                                <option value="Critical">Critical</option>
+                                <option value="High">High</option>
+                                <option value="Medium">Medium</option>
+                                <option value="Low">Low</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button onclick="resetDisasterFilters()"
+                        class="text-xs font-bold text-blue-600 hover:text-blue-800 transition">Reset Filters</button>
+                </div>
+
+                <div class="command-card overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead
+                                class="bg-slate-50 border-b border-slate-200 text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">
+                                <tr>
+                                    <th class="px-6 py-4">Incident ID</th>
+                                    <th class="px-6 py-4">Hazard Type</th>
+                                    <th class="px-6 py-4">Location / State</th>
+                                    <th class="px-6 py-4">GPS Coordinates</th>
+                                    <th class="px-6 py-4">Severity</th>
+                                    <th class="px-6 py-4">Status</th>
+                                    <th class="px-6 py-4 text-right">Update Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="disasters-table-body" class="divide-y divide-slate-100">
+                                <tr>
+                                    <td colspan="7" class="p-8 text-center text-slate-400">Loading incidents...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ==================== TAB 4: RELIEF CAMPS & SHELTERS ==================== -->
+            <div id="tab-shelters" class="space-y-6 max-w-7xl mx-auto hidden">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h1 class="text-2xl md:text-3xl font-extrabold text-slate-950 tracking-tight">Emergency Relief
+                            Camps & Shelters</h1>
+                        <p class="text-xs md:text-sm text-slate-500 mt-1">Real-time bed availability tracking, occupancy
+                            management, and camp coordination.</p>
+                    </div>
+                    <button id="btn-register-shelter" onclick="openModal('modal-register-shelter')"
+                        class="hidden px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs shadow-md shadow-emerald-500/20 transition flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                        </svg>
+                        <span>Register Relief Camp</span>
+                    </button>
+                </div>
+
+                <div
+                    class="p-4 bg-white rounded-2xl border border-slate-200 flex items-center justify-between shadow-sm">
+                    <label class="flex items-center gap-2.5 text-xs font-bold text-slate-700 cursor-pointer">
+                        <input type="checkbox" id="filter-shelter-open" onchange="loadShelters()"
+                            class="rounded text-emerald-600 focus:ring-0">
+                        <span>Show Available (Open) Camps Only</span>
+                    </label>
+                    <button onclick="loadShelters()" class="text-xs font-bold text-blue-600 hover:underline">Refresh
+                        List</button>
+                </div>
+
+                <div id="shelters-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div class="col-span-full p-12 text-center text-slate-400">Loading shelters...</div>
+                </div>
+            </div>
+
+            <!-- ==================== TAB 5: RELIEF LOGISTICS & SUPPLIES ==================== -->
+            <div id="tab-resources" class="space-y-8 max-w-7xl mx-auto hidden">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h1 class="text-2xl md:text-3xl font-extrabold text-slate-950 tracking-tight">Relief Supplies &
+                            Warehouse Logistics</h1>
+                        <p class="text-xs md:text-sm text-slate-500 mt-1">Depot inventory tracking and field supply
+                            request fulfillment pipeline.</p>
+                    </div>
+                    <div class="flex gap-2.5">
+                        <button onclick="openModal('modal-add-resource')"
+                            class="px-3.5 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl font-bold text-xs shadow-sm transition">
+                            ➕ Add Depot Stock
+                        </button>
+                        <button onclick="openModal('modal-request-resource')"
+                            class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-md shadow-blue-500/20 transition flex items-center gap-2">
+                            <span>📦</span> <span>Request Supplies</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="command-card p-6 md:p-8">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-extrabold text-slate-950 text-base">Relief Depot Stock Inventory</h3>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead
+                                class="bg-slate-50 border-b border-slate-200 text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">
+                                <tr>
+                                    <th class="px-6 py-3.5">Supply Item</th>
+                                    <th class="px-6 py-3.5">Category</th>
+                                    <th class="px-6 py-3.5">Quantity in Stock</th>
+                                    <th class="px-6 py-3.5">Depot Location</th>
+                                    <th class="px-6 py-3.5">Last Updated</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inventory-table-body" class="divide-y divide-slate-100">
+                                <tr>
+                                    <td colspan="5" class="p-6 text-center text-slate-400">Loading inventory...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="command-card p-6 md:p-8">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-extrabold text-slate-950 text-base">Field Supply Requests Pipeline</h3>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead
+                                class="bg-slate-50 border-b border-slate-200 text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">
+                                <tr>
+                                    <th class="px-6 py-3.5">Request ID</th>
+                                    <th class="px-6 py-3.5">Item & Destination</th>
+                                    <th class="px-6 py-3.5">Urgency</th>
+                                    <th class="px-6 py-3.5">Status</th>
+                                    <th class="px-6 py-3.5 text-right">Fulfillment Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="requests-table-body" class="divide-y divide-slate-100">
+                                <tr>
+                                    <td colspan="5" class="p-6 text-center text-slate-400">Loading requests...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ==================== TAB 6: IMD ALERT AGGREGATION & BULLETINS ==================== -->
+            <div id="tab-alerts" class="space-y-6 max-w-7xl mx-auto hidden">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h1 id="alert-header-title" class="text-2xl md:text-3xl font-extrabold text-slate-950 tracking-tight">Disaster Alerts & Meteorological Warnings</h1>
+                        <p id="alert-header-sub" class="text-xs md:text-sm text-slate-500 mt-1">Official IMD/NDMA meteorological warnings, weather bulletins, and emergency notices for your region.</p>
+                    </div>
+                    <div id="alert-authority-controls" class="flex items-center gap-2.5 hidden">
+                        <button onclick="triggerIMDIngestion()"
+                            class="px-3.5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold text-xs shadow-md shadow-orange-500/20 transition flex items-center gap-2">
+                            <span>⚡ Ingest IMD Alerts Now</span>
+                        </button>
+                        <button onclick="openModal('modal-broadcast-alert')"
+                            class="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs shadow-md shadow-red-500/20 transition flex items-center gap-2">
+                            <span>📢 Broadcast Manual Alert</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- IMD Ingestion Service Status Ribbon -->
+                <div id="imd-status-card"
+                    class="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4 text-xs">
+                    <div class="flex items-center gap-3">
+                        <span class="p-2 bg-orange-50 text-orange-600 rounded-xl font-black text-sm">🛰️</span>
+                        <div>
+                            <span class="font-extrabold text-slate-900 block">IMD Background Ingestion Engine</span>
+                            <span id="imd-status-text" class="text-slate-500">Checking service status...</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-4 text-[11px] font-mono">
+                        <div>Mode: <span id="imd-mode-badge"
+                                class="font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800">MOCK</span></div>
+                        <div>Ingested: <span id="imd-ingested-count" class="font-bold text-slate-900">0</span></div>
+                        <div>Deduplicated: <span id="imd-dedup-count" class="font-bold text-slate-900">0</span></div>
+                    </div>
+                </div>
+
+                <!-- Location-Aware Emergency Warning Filter Bar -->
+                <div class="p-4 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-red-500/10 rounded-2xl border border-amber-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-orange-600 text-white flex items-center justify-center text-xl shrink-0 font-bold shadow-md shadow-orange-500/20">
+                            📍
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="font-black text-slate-950 text-sm">Location-Based Emergency Warning Filter</span>
+                                <span id="user-location-badge" class="px-2.5 py-0.5 rounded-full bg-slate-900 text-white font-mono text-[10px] font-bold">Location: Not Detected</span>
+                            </div>
+                            <p class="text-slate-600 text-xs mt-0.5">Filter active IMD/NDMA warning bulletins for your specific state or district</p>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <button type="button" onclick="detectUserLocationForAlerts()"
+                            class="px-3.5 py-2 bg-orange-600 hover:bg-orange-700 text-white font-black rounded-xl shadow-sm transition flex items-center gap-1.5 whitespace-nowrap">
+                            <span>📍</span> Detect My Location (GPS)
+                        </button>
+
+                        <div class="flex items-center bg-white border border-slate-200 rounded-xl p-1 font-bold text-xs">
+                            <button id="alert-scope-nearby" onclick="setAlertScope('nearby')"
+                                class="px-3 py-1.5 rounded-lg bg-slate-900 text-white shadow-sm transition">
+                                📍 In My Region Only
+                            </button>
+                            <button id="alert-scope-all" onclick="setAlertScope('all')"
+                                class="px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 transition">
+                                🌐 All India Warnings
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="alerts-container" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="col-span-full p-12 text-center text-slate-400">Loading alerts...</div>
+                </div>
+            </div>
+
+            <!-- ==================== TAB 7: OFFLINE TELEPHONY & SMS/IVR HUB ==================== -->
+            <div id="tab-telephony" class="space-y-8 max-w-7xl mx-auto hidden">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h1 class="text-2xl md:text-3xl font-extrabold text-slate-950 tracking-tight">Offline Telecom
+                            Gateway & Citizen Fallback Hub</h1>
+                        <p class="text-xs md:text-sm text-slate-500 mt-1">Real-time SMS command engine and IVR voice
+                            telephony state machine for citizens without internet.</p>
+                    </div>
+                    <button onclick="loadCommunicationLogs()"
+                        class="px-3.5 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-50 transition">
+                        🔄 Refresh Logs
+                    </button>
+                </div>
+
+                <!-- 2-Column Telephony Simulator Grid -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- SMS Gateway Simulator -->
+                    <div class="command-card p-6 space-y-4">
+                        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                            <div>
+                                <h3 class="font-extrabold text-slate-950 text-base flex items-center gap-2">
+                                    <span>💬</span> <span>SMS Command Protocol Simulator</span>
+                                </h3>
+                                <p class="text-xs text-slate-400 mt-0.5">Test real SMS webhook commands without
+                                    telephony credits</p>
+                            </div>
+                            <span
+                                class="text-[10px] font-mono px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-bold">2G
+                                / 4G SMS</span>
+                        </div>
+
+                        <!-- Command Cheat Sheet Pills -->
+                        <div class="flex flex-wrap gap-1.5 text-[11px]">
+                            <button type="button" onclick="setSMSInput('HELP')"
+                                class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg font-mono font-bold text-slate-700">HELP</button>
+                            <button type="button" onclick="setSMSInput('ALERTS')"
+                                class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg font-mono font-bold text-slate-700">ALERTS</button>
+                            <button type="button" onclick="setSMSInput('SHELTER Kerala')"
+                                class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg font-mono font-bold text-slate-700">SHELTER
+                                Kerala</button>
+                            <button type="button"
+                                onclick="setSMSInput('REPORT Flood Critical Munnar 50 trapped near bridge')"
+                                class="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg font-mono font-bold">REPORT
+                                Flood Munnar</button>
+                            <button type="button" onclick="setSMSInput('STATUS 1')"
+                                class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg font-mono font-bold text-slate-700">STATUS
+                                1</button>
+                        </div>
+
+                        <form id="form-test-sms" onsubmit="handleTestSMS(event)" class="space-y-3">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">Citizen Sender Mobile</label>
+                                <input type="text" id="sms-sender" required value="+919876543210"
+                                    class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 mb-1">SMS Message Body</label>
+                                <textarea id="sms-body" rows="2" required placeholder="Type SMS command here..."
+                                    class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none"></textarea>
+                            </div>
+                            <button type="submit"
+                                class="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition">
+                                📤 Send SMS via Backend Webhook
+                            </button>
+                        </form>
+
+                        <!-- SMS Output Box -->
+                        <div id="sms-response-box"
+                            class="hidden p-3.5 bg-slate-900 text-emerald-400 rounded-xl font-mono text-xs whitespace-pre-wrap border border-slate-800">
+                        </div>
+                    </div>
+
+                    <!-- IVR Voice Telephony Simulator -->
+                    <div class="command-card p-6 space-y-4">
+                        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                            <div>
+                                <h3 class="font-extrabold text-slate-950 text-base flex items-center gap-2">
+                                    <span>📞</span> <span>IVR Voice Call State Machine</span>
+                                </h3>
+                                <p class="text-xs text-slate-400 mt-0.5">Interactive keypad simulator for voice callers
+                                </p>
+                            </div>
+                            <span
+                                class="text-[10px] font-mono px-2 py-0.5 bg-purple-100 text-purple-800 rounded-full font-bold">1078
+                                Voice</span>
+                        </div>
+
+                        <div class="p-3.5 bg-purple-50 rounded-2xl border border-purple-100 text-xs text-purple-950">
+                            <span class="font-bold block mb-1">Interactive Telephony Dialpad:</span>
+                            <span>Click a key to simulate pressing a button during an emergency call.</span>
+                        </div>
+
+                        <!-- Dialpad Grid -->
+                        <div class="grid grid-cols-4 gap-2.5 text-center">
+                            <button type="button" onclick="handleTestIVR(null)"
+                                class="p-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-xs transition">
+                                <span class="block text-base">🟢</span> Dial In (Start)
+                            </button>
+                            <button type="button" onclick="handleTestIVR('1')"
+                                class="p-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-xs transition">
+                                <span class="block text-base font-mono">1</span> Hear Alerts
+                            </button>
+                            <button type="button" onclick="handleTestIVR('2')"
+                                class="p-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-xs transition">
+                                <span class="block text-base font-mono">2</span> Shelters
+                            </button>
+                            <button type="button" onclick="handleTestIVR('3')"
+                                class="p-3 bg-red-50 hover:bg-red-100 text-red-700 rounded-xl font-bold text-xs transition border border-red-200">
+                                <span class="block text-base font-mono">3</span> Emergency
+                            </button>
+                        </div>
+
+                        <!-- IVR Spoken Response Box -->
+                        <div id="ivr-response-box"
+                            class="p-4 bg-slate-900 text-slate-100 rounded-2xl font-mono text-xs space-y-2 border border-slate-800 min-h-[120px]">
+                            <div class="text-slate-400 text-[11px]">// IVR Call Status: Ready. Click 'Dial In' to start
+                                call.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Communication Audit Log Table -->
+                <div class="command-card p-6 md:p-8">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h3 class="font-extrabold text-slate-950 text-base">Incoming Telecom Audit Stream</h3>
+                            <p class="text-xs text-slate-400 mt-0.5">Real-time database log of all incoming SMS and
+                                voice interactions</p>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead
+                                class="bg-slate-50 border-b border-slate-200 text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">
+                                <tr>
+                                    <th class="px-6 py-3.5">Log ID</th>
+                                    <th class="px-6 py-3.5">Channel</th>
+                                    <th class="px-6 py-3.5">Sender Number</th>
+                                    <th class="px-6 py-3.5">Command / Input</th>
+                                    <th class="px-6 py-3.5">Response Text</th>
+                                    <th class="px-6 py-3.5">Status</th>
+                                    <th class="px-6 py-3.5">Timestamp</th>
+                                </tr>
+                            </thead>
+                            <tbody id="comm-logs-table-body" class="divide-y divide-slate-100">
+                                <tr>
+                                    <td colspan="7" class="p-6 text-center text-slate-400">Loading audit history...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ==================== TAB 8: INDIA SOS & HELPLINES ==================== -->
+            <div id="tab-sos" class="space-y-8 max-w-7xl mx-auto hidden">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h1
+                            class="text-2xl md:text-3xl font-extrabold text-slate-950 tracking-tight flex items-center gap-3">
+                            <span class="p-2 bg-red-100 text-red-600 rounded-2xl">🆘</span>
+                            <span>India National Emergency Helplines & SOS Directory</span>
+                        </h1>
+                        <p class="text-xs md:text-sm text-slate-500 mt-1">24x7 toll-free emergency hotlines, State
+                            Disaster Control Rooms, and official NDMA safety protocols.</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <a href="tel:112"
+                        class="p-6 bg-gradient-to-br from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-3xl shadow-lg shadow-red-500/20 transition transform hover:-translate-y-1 block">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-extrabold uppercase tracking-widest text-red-200">Unified
+                                SOS</span>
+                            <span class="text-xl">📞</span>
+                        </div>
+                        <div class="text-4xl font-extrabold mt-3 font-mono">112</div>
+                        <div class="text-xs font-bold text-red-100 mt-1">National Emergency Response</div>
+                        <p class="text-[11px] text-red-200 mt-2">Single all-in-one number for Police, Fire, and
+                            Ambulance.</p>
+                    </a>
+
+                    <a href="tel:1078"
+                        class="p-6 bg-gradient-to-br from-orange-600 to-orange-700 hover:from-orange-700 hover:to-orange-800 text-white rounded-3xl shadow-lg shadow-orange-500/20 transition transform hover:-translate-y-1 block">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-extrabold uppercase tracking-widest text-orange-200">NDMA
+                                HQ</span>
+                            <span class="text-xl">🛡️</span>
+                        </div>
+                        <div class="text-4xl font-extrabold mt-3 font-mono">1078</div>
+                        <div class="text-xs font-bold text-orange-100 mt-1">National Disaster Management</div>
+                        <p class="text-[11px] text-orange-200 mt-2">Central 24x7 control room for severe hazard
+                            operations.</p>
+                    </a>
+
+                    <a href="tel:1070"
+                        class="p-6 bg-gradient-to-br from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-3xl shadow-lg shadow-blue-500/20 transition transform hover:-translate-y-1 block">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-extrabold uppercase tracking-widest text-blue-200">State
+                                SEOC</span>
+                            <span class="text-xl">🏢</span>
+                        </div>
+                        <div class="text-4xl font-extrabold mt-3 font-mono">1070</div>
+                        <div class="text-xs font-bold text-blue-100 mt-1">State Emergency Operations</div>
+                        <p class="text-[11px] text-blue-200 mt-2">Direct line to State Disaster Management Authorities.
+                        </p>
+                    </a>
+
+                    <a href="tel:108"
+                        class="p-6 bg-gradient-to-br from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white rounded-3xl shadow-lg shadow-emerald-500/20 transition transform hover:-translate-y-1 block">
+                        <div class="flex items-center justify-between">
+                            <span
+                                class="text-xs font-extrabold uppercase tracking-widest text-emerald-200">Medical</span>
+                            <span class="text-xl">🚑</span>
+                        </div>
+                        <div class="text-4xl font-extrabold mt-3 font-mono">108 / 102</div>
+                        <div class="text-xs font-bold text-emerald-100 mt-1">Emergency Ambulance Response</div>
+                        <p class="text-[11px] text-emerald-200 mt-2">Medical first responders and emergency patient
+                            transport.</p>
+                    </a>
+                </div>
+            </div>
+
+            <!-- ==================== TAB: ADMIN AUTHORITY VERIFICATION ==================== -->
+            <div id="tab-admin-authorities" class="hidden space-y-6 max-w-7xl mx-auto">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <div class="flex items-center gap-2.5">
+                            <span class="p-2 bg-blue-100 text-blue-800 rounded-xl text-sm">🛡️</span>
+                            <h1 class="text-xl md:text-2xl font-extrabold text-slate-950 tracking-tight">Authority
+                                Verification Queue</h1>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-1">Review official government, NDRF, SDRF, and disaster
+                            agency authorization applications.</p>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <select id="filter-authority-status" onchange="loadAdminAuthorityApplications()"
+                            class="text-xs bg-white border border-slate-200 rounded-xl px-3 py-2 font-bold text-slate-700 focus:outline-none">
+                            <option value="">All Statuses</option>
+                            <option value="PENDING" selected>Pending Review</option>
+                            <option value="APPROVED">Approved Authorities</option>
+                            <option value="REJECTED">Rejected</option>
+                        </select>
+                        <button onclick="loadAdminAuthorityApplications()"
+                            class="p-2 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl text-slate-600 transition text-xs font-bold">
+                            🔄 Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Applications Grid / List Container -->
+                <div id="admin-authority-list" class="space-y-4">
+                    <div class="p-12 text-center text-slate-400 text-xs">Loading authority applications...</div>
+                </div>
+            </div>
+
+            <!-- ==================== TAB: MISSING PERSONS REGISTRY ==================== -->
+            <div id="tab-missing-persons" class="hidden space-y-6 max-w-7xl mx-auto">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h1 class="text-2xl md:text-3xl font-extrabold text-slate-950 tracking-tight">Missing
+                            Persons Registry & Search</h1>
+                        <p class="text-xs md:text-sm text-slate-500 mt-1">National missing persons database for
+                            citizen registration, emergency search, and authority identification.</p>
+                    </div>
+                    <button onclick="openRegisterMissingPersonModal()"
+                        class="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs shadow-md shadow-amber-500/20 transition flex items-center gap-2">
+                        <span>🔍</span> <span>+ Register Missing Person</span>
+                    </button>
+                </div>
+
+                <div
+                    class="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div class="flex-1 relative">
+                        <span
+                            class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400 text-sm">🔍</span>
+                        <input type="text" id="search-missing-query" onkeyup="filterMissingPersons()"
+                            placeholder="Search by full name, last seen location, clothing, or description..."
+                            class="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    </div>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <select id="filter-missing-status" onchange="loadMissingPersons()"
+                            class="text-xs border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 font-medium text-slate-700 focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                            <option value="">All Case Statuses</option>
+                            <option value="MISSING" selected>Active Missing Cases</option>
+                            <option value="FOUND">Found / Identified</option>
+                            <option value="REUNITED">Reunited with Family</option>
+                            <option value="CLOSED">Case Closed</option>
+                        </select>
+                        <select id="filter-missing-gender" onchange="loadMissingPersons()"
+                            class="text-xs border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 font-medium text-slate-700 focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                            <option value="">All Genders</option>
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                            <option value="Other">Other</option>
+                        </select>
+                        <button onclick="loadMissingPersons(); showToast('Missing persons directory refreshed!', 'info');"
+                            class="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm">
+                            <span>🔄</span> <span>Refresh</span>
+                        </button>
+                        <button onclick="resetMissingPersonFilters()"
+                            class="text-xs font-bold text-slate-500 hover:text-slate-800">
+                            Reset Filters
+                        </button>
+                    </div>
+                </div>
+
+                <div id="missing-persons-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div class="col-span-full p-12 text-center text-slate-400">Loading missing persons directory...
+                    </div>
+                </div>
+            </div>
+
+            <!-- ==================== TAB: USER DASHBOARD & PROFILE (Category 11) ==================== -->
+            <div id="tab-user-dashboard" class="hidden space-y-6 max-w-7xl mx-auto">
+                <!-- Top Header -->
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h1
+                            class="text-2xl md:text-3xl font-extrabold text-slate-950 tracking-tight flex items-center gap-3">
+                            <span class="p-2 bg-indigo-100 text-indigo-700 rounded-2xl text-xl">👤</span>
+                            <span>My Profile & Citizen Operations Dashboard</span>
+                        </h1>
+                        <p class="text-xs md:text-sm text-slate-500 mt-1">Manage your verified identity, authority
+                            applications, submitted incident reports, and missing person cases.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="loadUserDashboard()"
+                            class="p-2.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl text-slate-600 transition text-xs font-bold flex items-center gap-1.5 shadow-sm">
+                            <span>🔄</span> Refresh Dashboard
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 2-Column: Profile Card + Authority Status Card -->
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <!-- Profile Identity Card (5 cols) -->
+                    <div class="lg:col-span-5 command-card p-6 space-y-5 bg-white flex flex-col justify-between">
+                        <div>
+                            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                                <span class="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Citizen
+                                    Identity</span>
+                                <span id="dashboard-role-badge"
+                                    class="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">USER</span>
+                            </div>
+                            <div class="flex items-center gap-4 pt-4">
+                                <img id="dashboard-avatar"
+                                    src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='50' fill='%232563eb'/><text x='50' y='62' font-size='40' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='bold'>👤</text></svg>"
+                                    alt="Avatar"
+                                    class="w-16 h-16 rounded-2xl border-2 border-slate-200 object-cover shadow-sm">
+                                <div class="space-y-1">
+                                    <h2 id="dashboard-name" class="text-lg font-extrabold text-slate-950">Citizen
+                                        Name</h2>
+                                    <p id="dashboard-email" class="text-xs text-slate-500">citizen@gmail.com</p>
+                                </div>
+                            </div>
+                            <div class="mt-4 pt-4 border-t border-slate-100 space-y-2 text-xs">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-slate-500 font-medium">Verified Phone:</span>
+                                    <span id="dashboard-phone" class="font-bold text-slate-900 font-mono">+91
+                                        --</span>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-slate-500 font-medium">Member Since:</span>
+                                    <span id="dashboard-member-since" class="font-semibold text-slate-700">--</span>
+                                </div>
+                            </div>
+                        </div>
+                        <button onclick="openCompleteProfileModal()"
+                            class="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-bold text-xs transition">
+                            ✏️ Update Profile & Phone Number
+                        </button>
+                    </div>
+
+                    <!-- Authority Application Status Card (7 cols) -->
+                    <div id="dashboard-authority-card"
+                        class="lg:col-span-7 command-card p-6 space-y-4 bg-gradient-to-br from-purple-50 via-white to-blue-50 flex flex-col justify-between">
+                        <div id="dashboard-authority-content">
+                            <div class="p-8 text-center text-slate-400 text-xs">Loading authority status...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Summary KPI Counter Strip (3 Cards) -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+                    <div
+                        class="p-5 bg-white rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+                        <div>
+                            <span class="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">My
+                                Incident Reports</span>
+                            <div id="kpi-my-reports" class="text-2xl font-extrabold text-slate-950 font-mono mt-1">0
+                            </div>
+                            <span class="text-[11px] text-slate-500">Submitted emergencies</span>
+                        </div>
+                        <span class="p-3 bg-red-50 text-red-600 rounded-2xl text-2xl">🚨</span>
+                    </div>
+
+                    <div
+                        class="p-5 bg-white rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+                        <div>
+                            <span class="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">My
+                                Missing Person Cases</span>
+                            <div id="kpi-my-missing" class="text-2xl font-extrabold text-slate-950 font-mono mt-1">0
+                            </div>
+                            <span class="text-[11px] text-slate-500">Registered records</span>
+                        </div>
+                        <span class="p-3 bg-amber-50 text-amber-600 rounded-2xl text-2xl">👥</span>
+                    </div>
+
+                    <div
+                        class="p-5 bg-white rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+                        <div>
+                            <span class="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">My
+                                Sighting Suggestions</span>
+                            <div id="kpi-my-sightings" class="text-2xl font-extrabold text-slate-950 font-mono mt-1">0
+                            </div>
+                            <span class="text-[11px] text-slate-500">Community reports</span>
+                        </div>
+                        <span class="p-3 bg-emerald-50 text-emerald-600 rounded-2xl text-2xl">🙋</span>
+                    </div>
+                </div>
+
+                <!-- Interactive Sub-Tabs for User Activity -->
+                <div class="command-card p-6 space-y-5 bg-white">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-3 flex-wrap gap-2">
+                        <div class="flex items-center gap-2">
+                            <button id="btn-subtab-reports" onclick="switchUserDashboardSubtab('reports')"
+                                class="px-3.5 py-1.5 rounded-xl font-bold text-xs bg-slate-900 text-white shadow-sm transition">
+                                🚨 My Incident Reports (<span id="count-subtab-reports">0</span>)
+                            </button>
+                            <button id="btn-subtab-missing" onclick="switchUserDashboardSubtab('missing')"
+                                class="px-3.5 py-1.5 rounded-xl font-bold text-xs bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                                👥 My Missing Cases (<span id="count-subtab-missing">0</span>)
+                            </button>
+                            <button id="btn-subtab-sightings" onclick="switchUserDashboardSubtab('sightings')"
+                                class="px-3.5 py-1.5 rounded-xl font-bold text-xs bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                                🙋 My Sighting Reports (<span id="count-subtab-sightings">0</span>)
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Subtab Content Containers -->
+                    <div id="user-dashboard-subtab-reports" class="space-y-4">
+                        <div class="p-10 text-center text-slate-400 text-xs">Loading your incident reports...</div>
+                    </div>
+
+                    <div id="user-dashboard-subtab-missing" class="hidden space-y-4">
+                        <div class="p-10 text-center text-slate-400 text-xs">Loading your missing person cases...
+                        </div>
+                    </div>
+
+                    <div id="user-dashboard-subtab-sightings" class="hidden space-y-4">
+                        <div class="p-10 text-center text-slate-400 text-xs">Loading your sighting reports...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ==================== TAB: AUTHORITY OPERATIONS CENTER (Category 12) ==================== -->
+            <div id="tab-authority-dashboard" class="hidden space-y-6 max-w-7xl mx-auto">
+
+                <!-- Active Authority Content Container -->
+                <div id="authority-dashboard-content" class="space-y-6">
+                    <!-- Top Header & Officer Command Strip -->
+                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span
+                                    class="text-xs font-black uppercase tracking-wider text-purple-700 font-mono">Disaster
+                                    Command Network</span>
+                                <span
+                                    class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-200">Operational
+                                    Level 1</span>
+                            </div>
+                            <h1
+                                class="text-2xl md:text-3xl font-extrabold text-slate-950 tracking-tight flex items-center gap-3 mt-1">
+                                <span class="p-2 bg-purple-100 text-purple-700 rounded-2xl text-xl">🛡️</span>
+                                <span>Emergency Authority Operations Center</span>
+                            </h1>
+                            <p class="text-xs md:text-sm text-slate-500 mt-1">Real-time incident dispatch, AI
+                                verification queue, missing persons identification, and shelter logistics.</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="loadAuthorityDashboard()"
+                                class="p-2.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl text-slate-600 transition text-xs font-bold flex items-center gap-1.5 shadow-sm">
+                                <span>🔄</span> Refresh Metrics
+                            </button>
+                            <button onclick="openModal('modal-broadcast-alert')"
+                                class="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-500/20 transition flex items-center gap-2">
+                                <span>📢</span> Broadcast Alert
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 5-Card Operational KPI Metrics Strip -->
+                    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                        <div class="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-1">
+                            <span class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Active
+                                Incidents</span>
+                            <div class="flex items-baseline gap-2">
+                                <span id="auth-kpi-disasters"
+                                    class="text-2xl font-black text-slate-950 font-mono">0</span>
+                                <span id="auth-kpi-critical"
+                                    class="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">0
+                                    Critical</span>
+                            </div>
+                        </div>
+
+                        <div class="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-1">
+                            <span class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">AI
+                                Verification Queue</span>
+                            <div class="flex items-baseline gap-2">
+                                <span id="auth-kpi-verifications"
+                                    class="text-2xl font-black text-purple-700 font-mono">0</span>
+                                <span
+                                    class="text-[10px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">Pending
+                                    Review</span>
+                            </div>
+                        </div>
+
+                        <div class="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-1">
+                            <span class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Active
+                                Missing Cases</span>
+                            <div class="flex items-baseline gap-2">
+                                <span id="auth-kpi-missing"
+                                    class="text-2xl font-black text-amber-700 font-mono">0</span>
+                                <span id="auth-kpi-sightings"
+                                    class="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">0
+                                    Sightings</span>
+                            </div>
+                        </div>
+
+                        <div class="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-1">
+                            <span class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Shelter
+                                Utilization</span>
+                            <div class="flex items-baseline gap-2">
+                                <span id="auth-kpi-shelter-util"
+                                    class="text-2xl font-black text-emerald-700 font-mono">0%</span>
+                                <span id="auth-kpi-shelter-beds"
+                                    class="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">0
+                                    / 0 Beds</span>
+                            </div>
+                        </div>
+
+                        <div class="p-4 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-1">
+                            <span class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Supply
+                                Requests</span>
+                            <div class="flex items-baseline gap-2">
+                                <span id="auth-kpi-resources"
+                                    class="text-2xl font-black text-blue-700 font-mono">0</span>
+                                <span
+                                    class="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">Pending
+                                    Dispatch</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Dispatch & Command Action Bar -->
+                    <div
+                        class="p-5 bg-gradient-to-r from-purple-900 via-indigo-900 to-slate-900 rounded-3xl shadow-xl text-white flex flex-wrap items-center justify-between gap-4">
+                        <div class="space-y-1">
+                            <div class="flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                <span
+                                    class="text-xs font-black uppercase tracking-wider text-purple-300 font-mono">Operational
+                                    Quick-Actions</span>
+                            </div>
+                            <h3 class="text-base font-extrabold">Emergency Dispatch & Incident Coordination</h3>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2.5">
+                            <button onclick="switchTab('verification')"
+                                class="px-3.5 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                                <span>🤖</span> AI Verification Queue
+                            </button>
+                            <button onclick="openModal('modal-register-shelter')"
+                                class="px-3.5 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                                <span>🏕️</span> Add Relief Camp
+                            </button>
+                            <button onclick="openModal('modal-add-resource')"
+                                class="px-3.5 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                                <span>📦</span> Stock Emergency Supplies
+                            </button>
+                            <button onclick="switchTab('map')"
+                                class="px-3.5 py-2 bg-purple-600 hover:bg-purple-500 rounded-xl text-xs font-bold shadow-sm transition flex items-center gap-2">
+                                <span>🗺️</span> Live GIS Heatmap
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 2-Column: Unverified Reports Triage + Missing Persons Authority Management -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Left: Unverified Incident Reports Feed -->
+                        <div class="command-card p-6 space-y-4 bg-white flex flex-col justify-between">
+                            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                                <div class="flex items-center gap-2">
+                                    <span class="p-1.5 bg-red-100 text-red-700 rounded-xl text-sm">🚨</span>
+                                    <h3 class="font-extrabold text-slate-950 text-sm">Unverified Citizen Reports
+                                    </h3>
+                                </div>
+                                <span id="auth-feed-reports-count"
+                                    class="text-[11px] font-mono font-bold text-slate-500">0 Pending</span>
+                            </div>
+                            <div id="auth-unverified-reports-list" class="space-y-3 max-h-[380px] overflow-y-auto pr-1">
+                                <div class="p-8 text-center text-slate-400 text-xs">Loading unverified reports...
+                                </div>
+                            </div>
+                            <button onclick="switchTab('disasters')"
+                                class="w-full py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl font-bold text-xs transition">
+                                View Full Incident Priority Queue &rarr;
+                            </button>
+                        </div>
+
+                        <!-- Right: Missing Persons Authority Queue -->
+                        <div class="command-card p-6 space-y-4 bg-white flex flex-col justify-between">
+                            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                                <div class="flex items-center gap-2">
+                                    <span class="p-1.5 bg-amber-100 text-amber-700 rounded-xl text-sm">👥</span>
+                                    <h3 class="font-extrabold text-slate-950 text-sm">Active Missing Persons Cases
+                                    </h3>
+                                </div>
+                                <span id="auth-feed-missing-count"
+                                    class="text-[11px] font-mono font-bold text-slate-500">0 Active</span>
+                            </div>
+                            <div id="auth-missing-persons-list" class="space-y-3 max-h-[380px] overflow-y-auto pr-1">
+                                <div class="p-8 text-center text-slate-400 text-xs">Loading active cases...</div>
+                            </div>
+                            <button onclick="switchTab('missing-persons')"
+                                class="w-full py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl font-bold text-xs transition">
+                                View Complete Missing Persons Directory &rarr;
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- ==================== MODALS ==================== -->
+
+    <!-- Modal: Register Missing Person (Category 5) -->
+    <div id="modal-register-missing"
+        class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+            class="command-card w-full max-w-2xl bg-white p-6 md:p-8 rounded-3xl shadow-2xl space-y-6 max-h-[92vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div class="flex items-center gap-3">
+                    <span class="p-2 bg-amber-100 text-amber-800 rounded-xl text-lg font-bold">🔍</span>
+                    <div>
+                        <h3 class="font-extrabold text-slate-950 text-lg">Register Missing Person Case</h3>
+                        <p class="text-xs text-slate-500">Provide official details for missing individual identification
+                            & tracking.</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('modal-register-missing')"
+                    class="text-slate-400 hover:text-slate-700 text-lg">✕</button>
+            </div>
+
+            <form id="form-register-missing" onsubmit="handleRegisterMissingPerson(event)" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-[11px] font-extrabold uppercase text-slate-500 block mb-1">Full Legal Name
+                            *</label>
+                        <input type="text" id="missing-full-name" required placeholder="e.g. Ramesh Kumar"
+                            class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="text-[11px] font-extrabold uppercase text-slate-500 block mb-1">Age (Years)
+                            *</label>
+                        <input type="number" id="missing-age" required min="0" max="120" placeholder="e.g. 34"
+                            class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-[11px] font-extrabold uppercase text-slate-500 block mb-1">Gender *</label>
+                        <select id="missing-gender" required
+                            class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[11px] font-extrabold uppercase text-slate-500 block mb-1">Family / Contact
+                            Phone *</label>
+                        <input type="tel" id="missing-contact-phone" required
+                            placeholder="10-digit Indian phone (e.g. 9876543210)"
+                            class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-[11px] font-extrabold uppercase text-slate-500 block mb-1">Last Seen Location
+                            *</label>
+                        <input type="text" id="missing-location" required placeholder="Village, town, landmark, street"
+                            class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="text-[11px] font-extrabold uppercase text-slate-500 block mb-1">Last Seen Date &
+                            Time *</label>
+                        <input type="datetime-local" id="missing-date" required
+                            class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="text-[11px] font-extrabold uppercase text-slate-500 block mb-1">Photograph
+                        (Optional)</label>
+                    <input type="file" id="missing-photo-file" accept="image/*"
+                        class="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-100 file:text-amber-800 hover:file:bg-amber-200">
+                </div>
+
+                <div>
+                    <label class="text-[11px] font-extrabold uppercase text-slate-500 block mb-1">Clothing & Identifying
+                        Physical Marks</label>
+                    <textarea id="missing-clothing" rows="2"
+                        placeholder="Blue shirt, black jeans, mole on left cheek, height ~5ft 8in"
+                        class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-amber-500 focus:outline-none"></textarea>
+                </div>
+
+                <div>
+                    <label class="text-[11px] font-extrabold uppercase text-slate-500 block mb-1">Known Medical
+                        Conditions & Critical Medications</label>
+                    <textarea id="missing-medical" rows="2" placeholder="Diabetic, hypertension, needs daily insulin"
+                        class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-amber-500 focus:outline-none"></textarea>
+                </div>
+
+                <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+                    <button type="button" onclick="closeModal('modal-register-missing')"
+                        class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition">Cancel</button>
+                    <button type="submit"
+                        class="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-extrabold text-xs shadow-md shadow-amber-500/20 transition">Register
+                        Missing Person Case</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Submit Found Person Sighting (Category 6) -->
+    <div id="modal-found-suggestion"
+        class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+            class="command-card w-full max-w-xl bg-white p-6 md:p-8 rounded-3xl shadow-2xl space-y-5 max-h-[92vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div class="flex items-center gap-3">
+                    <span class="p-2 bg-emerald-100 text-emerald-800 rounded-xl text-lg font-bold">🙋</span>
+                    <div>
+                        <h3 class="font-extrabold text-slate-950 text-lg">Report Person Sighting / Evidence</h3>
+                        <p id="found-target-person-banner" class="text-xs font-bold text-amber-800">Target Case: Missing
+                            Person</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('modal-found-suggestion')"
+                    class="text-slate-400 hover:text-slate-700 text-lg">✕</button>
+            </div>
+
+            <div
+                class="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-950 leading-relaxed font-medium">
+                <strong>📌 Important Notice:</strong> Submitting a sighting suggestion provides evidence to family
+                members & authorities for verification. It does <em>not</em> automatically close or overwrite the
+                official missing case status.
+            </div>
+
+            <form id="form-found-suggestion" onsubmit="handleFoundSuggestionSubmit(event)" class="space-y-4">
+                <input type="hidden" id="found-target-mp-id">
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-[11px] font-extrabold uppercase text-slate-500 block mb-1">Sighting Location
+                            *</label>
+                        <input type="text" id="found-location" required
+                            placeholder="Shelter name, hospital, street, landmark"
+                            class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="text-[11px] font-extrabold uppercase text-slate-500 block mb-1">Sighting Date &
+                            Time *</label>
+                        <input type="datetime-local" id="found-date" required
+                            class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="text-[11px] font-extrabold uppercase text-slate-500 block mb-1">Your Contact Phone
+                        Number *</label>
+                    <input type="tel" id="found-contact-phone" required placeholder="10-digit Indian mobile number"
+                        class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </div>
+
+                <div>
+                    <label class="text-[11px] font-extrabold uppercase text-slate-500 block mb-1">Photo Evidence
+                        (Optional)</label>
+                    <input type="file" id="found-photo-file" accept="image/*"
+                        class="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-100 file:text-emerald-800 hover:file:bg-emerald-200">
+                </div>
+
+                <div>
+                    <label class="text-[11px] font-extrabold uppercase text-slate-500 block mb-1">Detailed Sighting
+                        Description & Condition *</label>
+                    <textarea id="found-notes" rows="3" required
+                        placeholder="Describe physical condition, shelter/camp name, clothes worn, medical state, who they are currently with..."
+                        class="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"></textarea>
+                </div>
+
+                <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+                    <button type="button" onclick="closeModal('modal-found-suggestion')"
+                        class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition">Cancel</button>
+                    <button type="submit"
+                        class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-extrabold text-xs shadow-md shadow-emerald-500/20 transition">Submit
+                        Sighting Evidence</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: View Sighting Evidence & Suggestions (Category 6) -->
+    <div id="modal-view-suggestions"
+        class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+            class="command-card w-full max-w-2xl bg-white p-6 md:p-8 rounded-3xl shadow-2xl space-y-6 max-h-[92vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                    <h3 id="suggestions-modal-title" class="font-extrabold text-slate-950 text-lg">Sighting Evidence &
+                        Suggestions</h3>
+                    <p class="text-xs text-slate-500">Citizen & responder reported sightings for verification.</p>
+                </div>
+                <button onclick="closeModal('modal-view-suggestions')"
+                    class="text-slate-400 hover:text-slate-700 text-lg">✕</button>
+            </div>
+
+            <div id="suggestions-list-container" class="space-y-4">
+                <div class="p-8 text-center text-slate-400 text-xs">Loading sighting reports...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: View Case Audit Log Trail (Category 7) -->
+    <div id="modal-view-audit-logs"
+        class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+            class="command-card w-full max-w-2xl bg-white p-6 md:p-8 rounded-3xl shadow-2xl space-y-6 max-h-[92vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div class="flex items-center gap-3">
+                    <span class="p-2 bg-blue-100 text-blue-800 rounded-xl text-lg font-bold">📜</span>
+                    <div>
+                        <h3 id="audit-modal-title" class="font-extrabold text-slate-950 text-lg">Official Audit Log
+                            Trail</h3>
+                        <p class="text-xs text-slate-500">Immutable record of case status transitions & authority
+                            actions.</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('modal-view-audit-logs')"
+                    class="text-slate-400 hover:text-slate-700 text-lg">✕</button>
+            </div>
+
+            <div id="audit-logs-list-container" class="space-y-4">
+                <div class="p-8 text-center text-slate-400 text-xs">Loading audit log entries...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL: OFFLINE SMS SOS DISPATCHER ==================== -->
+    <div id="modal-offline-sms"
+        class="hidden fixed inset-0 z-[99999] flex items-center justify-center p-4 modal-backdrop">
+        <div class="bg-white rounded-3xl p-6 md:p-8 max-w-xl w-full shadow-2xl space-y-5 max-h-[92vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-2xl shadow-lg shadow-orange-500/20 text-white">
+                        📱
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-black text-slate-950 flex items-center gap-2">
+                            <span>Offline SMS SOS Dispatch</span>
+                        </h3>
+                        <p class="text-xs text-slate-500 font-medium">Sends emergency distress via basic 2G/cellular SMS when internet is down</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('modal-offline-sms')"
+                    class="text-slate-400 hover:text-slate-600 text-xl font-bold p-1">&times;</button>
+            </div>
+
+            <!-- Zero Internet Guarantee Badge -->
+            <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-2.5 text-xs text-emerald-900 font-bold">
+                <span class="text-lg">📡</span>
+                <span>Works 100% Offline! Opens your phone's SMS app with auto-formatted GPS distress coordinates.</span>
+            </div>
+
+            <div class="space-y-4 text-xs">
+                <!-- 1. Emergency Type -->
+                <div>
+                    <label class="block font-black text-slate-800 uppercase tracking-wider mb-1.5">🚨 Emergency Situation *</label>
+                    <select id="sms-emergency-type" onchange="updateSMSPreview()"
+                        class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 font-bold text-slate-900 focus:ring-2 focus:ring-orange-500 focus:outline-none">
+                        <option value="FLOOD_RESCUE">🌊 Flooding / Trapped on Roof or Tree</option>
+                        <option value="MEDICAL_SOS">🚑 Medical Emergency / Severe Injury</option>
+                        <option value="FOOD_WATER">🍞 Stranded / No Food &amp; Clean Water</option>
+                        <option value="BUILDING_COLLAPSE">🏚️ Building Collapse / Debris Entrapment</option>
+                        <option value="FIRE_TRAPPED">🔥 Fire / Explosive Hazard</option>
+                        <option value="LANDSLIDE">⛰️ Landslide / Road Blocked</option>
+                        <option value="CYCLONE_STORM">🌪️ Cyclone / Extreme Gale Damage</option>
+                        <option value="GENERAL_SOS">🆘 Immediate Life-Threatening Danger</option>
+                    </select>
+                </div>
+
+                <!-- 2. Location & GPS -->
+                <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <label class="block font-black text-slate-800 uppercase tracking-wider">📍 Location &amp; Landmark</label>
+                        <button type="button" onclick="detectOfflineSMSLocation()"
+                            class="text-[11px] bg-orange-600 hover:bg-orange-700 text-white font-bold px-3 py-1 rounded-lg shadow-sm transition flex items-center gap-1">
+                            <span>📍</span> Auto-Detect GPS (Offline)
+                        </button>
+                    </div>
+                    <input type="text" id="sms-location" oninput="updateSMSPreview()"
+                        placeholder="e.g. Near St. Mary Church, 2nd Floor, Aluva"
+                        class="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs bg-white font-medium focus:ring-2 focus:ring-orange-500 focus:outline-none">
+                    
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <span class="text-[10px] font-bold text-slate-500">Latitude:</span>
+                            <input type="text" id="sms-lat" oninput="updateSMSPreview()" placeholder="e.g. 10.1076"
+                                class="w-full border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-mono bg-white">
+                        </div>
+                        <div>
+                            <span class="text-[10px] font-bold text-slate-500">Longitude:</span>
+                            <input type="text" id="sms-lng" oninput="updateSMSPreview()" placeholder="e.g. 76.3516"
+                                class="w-full border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-mono bg-white">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. People Trapped & Details -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-black text-slate-800 uppercase tracking-wider mb-1.5">👥 Persons Trapped</label>
+                        <select id="sms-people-count" onchange="updateSMSPreview()"
+                            class="w-full border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 font-bold text-slate-900 focus:ring-2 focus:ring-orange-500 focus:outline-none">
+                            <option value="1">1 Person</option>
+                            <option value="2-5" selected>2 - 5 Persons</option>
+                            <option value="6-10">6 - 10 Persons</option>
+                            <option value="10+">10+ Persons (Mass Rescue)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block font-black text-slate-800 uppercase tracking-wider mb-1.5">📞 My Mobile Number</label>
+                        <input type="tel" id="sms-my-phone" oninput="updateSMSPreview()" placeholder="e.g. 9876543210"
+                            class="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono font-bold bg-slate-50 focus:bg-white focus:ring-2 focus:ring-orange-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <!-- 4. Real-time SMS Content Preview -->
+                <div class="p-3.5 bg-slate-900 rounded-2xl text-white space-y-1.5">
+                    <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono font-bold uppercase">
+                        <span>💬 SMS Message Preview</span>
+                        <span id="sms-char-count">0 chars</span>
+                    </div>
+                    <div id="sms-preview-box" class="font-mono text-xs font-bold text-orange-300 break-words leading-relaxed">
+                        Generating SOS SMS...
+                    </div>
+                </div>
+
+                <!-- 5. 1-Tap Direct Send Buttons -->
+                <div class="space-y-2 pt-2">
+                    <span class="block font-black text-slate-700 uppercase tracking-wider text-[11px]">Choose Emergency Recipient (1-Tap Send):</span>
+                    
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <button type="button" onclick="sendSMSDirect('112')"
+                            class="p-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold flex items-center justify-between shadow-md transition group">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xl">🚨</span>
+                                <div class="text-left">
+                                    <div class="text-xs font-black">112 Unified SOS</div>
+                                    <div class="text-[10px] text-red-100">National Emergency Center</div>
+                                </div>
+                            </div>
+                            <span class="text-xs font-mono bg-white/20 px-2 py-0.5 rounded-lg font-bold">SEND &rarr;</span>
+                        </button>
+
+                        <button type="button" onclick="sendSMSDirect('1078')"
+                            class="p-3 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold flex items-center justify-between shadow-md transition group">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xl">🛡️</span>
+                                <div class="text-left">
+                                    <div class="text-xs font-black">1078 NDMA HQ</div>
+                                    <div class="text-[10px] text-orange-100">Disaster Management Room</div>
+                                </div>
+                            </div>
+                            <span class="text-xs font-mono bg-white/20 px-2 py-0.5 rounded-lg font-bold">SEND &rarr;</span>
+                        </button>
+
+                        <button type="button" onclick="sendSMSDirect('1070')"
+                            class="p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center justify-between shadow-md transition group">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xl">🏢</span>
+                                <div class="text-left">
+                                    <div class="text-xs font-black">1070 State SEOC</div>
+                                    <div class="text-[10px] text-blue-100">State Control Center</div>
+                                </div>
+                            </div>
+                            <span class="text-xs font-mono bg-white/20 px-2 py-0.5 rounded-lg font-bold">SEND &rarr;</span>
+                        </button>
+
+                        <div class="p-2 bg-slate-100 border border-slate-200 rounded-xl flex items-center gap-2">
+                            <input type="tel" id="sms-custom-phone" placeholder="Family phone (+91...)"
+                                class="flex-1 px-2.5 py-1.5 text-xs rounded-lg border border-slate-300 font-mono font-bold bg-white focus:outline-none">
+                            <button type="button" onclick="sendSMSCustomContact()"
+                                class="px-3 py-1.5 bg-slate-900 hover:bg-black text-white rounded-lg font-bold text-xs whitespace-nowrap shadow-sm">
+                                👨‍👩‍👧 Send
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL: COMPULSORY INCIDENT REPORTING ==================== -->
+    <div id="modal-report-disaster"
+        class="hidden fixed inset-0 z-[99999] flex items-center justify-center p-4 modal-backdrop" style="background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);">
+        <div class="bg-white rounded-3xl w-full shadow-2xl max-h-[95vh] overflow-y-auto border border-slate-100" style="max-width: 580px;">
+
+            <!-- Modal Header -->
+            <div class="sticky top-0 bg-white rounded-t-3xl z-10 px-6 pt-6 pb-4 border-b border-slate-100">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-2xl overflow-hidden shadow-lg shadow-red-500/30 ring-2 ring-red-500/20 shrink-0">
+                            <img src="/assets/logo.jpg" alt="Raksha Setu" class="w-full h-full object-cover" onerror="this.src='logo.jpg'; this.onerror=function(){this.style.display='none'; this.parentElement.innerHTML='<div style=\'width:100%;height:100%;background:linear-gradient(135deg,#dc2626,#ea580c);display:flex;align-items:center;justify-content:center;font-size:22px\'>🚨</div>';}">
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-black text-slate-950 leading-tight">Report Emergency Incident</h3>
+                            <p class="text-xs text-slate-500 mt-0.5"><span class="text-red-500 font-bold">* Required fields</span> &bull; Saved directly to database</p>
+                        </div>
+                    </div>
+                    <button onclick="closeModal('modal-report-disaster')" class="text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl w-9 h-9 flex items-center justify-center text-xl font-bold transition">&times;</button>
+                </div>
+
+                <!-- Offline SMS Banner -->
+                <div class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between gap-3 text-xs">
+                    <div class="flex items-center gap-2">
+                        <span class="text-base">📡</span>
+                        <span class="text-amber-900 font-semibold">No internet? Use offline SMS SOS instead.</span>
+                    </div>
+                    <button type="button" onclick="closeModal('modal-report-disaster'); openModal('modal-offline-sms')"
+                        class="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-[11px] shadow-sm transition whitespace-nowrap">
+                        📱 Offline SMS
+                    </button>
+                </div>
+            </div>
+
+            <form id="form-report-disaster" onsubmit="reportDisaster(event); return false;" class="px-6 pb-6 pt-5 space-y-5" enctype="multipart/form-data">
+
+                <!-- Section 1: Reporter Details -->
+                <div class="space-y-3">
+                    <div class="flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-lg bg-red-100 text-red-700 flex items-center justify-center text-xs font-black">1</span>
+                        <span class="text-xs font-black text-slate-900 uppercase tracking-wider">Your Details</span>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-700 mb-1.5">Full Name <span class="text-red-500">*</span></label>
+                            <input type="text" id="report-reporter-name" required maxlength="100"
+                                placeholder="e.g. Mohit Awasthi"
+                                class="w-full border-2 border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 focus:border-red-500 focus:ring-0 focus:outline-none transition bg-white"
+                                oninput="validateReportForm()">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-700 mb-1.5">Mobile Number <span class="text-red-500">*</span></label>
+                            <div class="relative">
+                                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500 font-mono select-none">🇮🇳 +91</span>
+                                <input type="tel" id="report-reporter-phone" required maxlength="10" pattern="[6-9][0-9]{9}"
+                                    placeholder="9876543210"
+                                    class="w-full border-2 border-slate-200 rounded-xl pl-16 pr-3.5 py-2.5 text-xs font-mono font-bold text-slate-900 focus:border-red-500 focus:ring-0 focus:outline-none transition bg-white"
+                                    oninput="this.value=this.value.replace(/\D/g,'').slice(0,10); validateReportForm()">
+                            </div>
+                            <p id="phone-validation-msg" class="text-[10px] mt-1 text-slate-400">Enter 10-digit mobile number</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 2: Location -->
+                <div class="space-y-3">
+                    <div class="flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-black">2</span>
+                        <span class="text-xs font-black text-slate-900 uppercase tracking-wider">Incident Location <span class="text-red-500">*</span></span>
+                    </div>
+
+                    <!-- Auto-Detect Button -->
+                    <button type="button" id="btn-auto-detect-location" onclick="autoDetectReportLocation()"
+                        class="w-full flex items-center justify-center gap-2.5 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-xl font-bold text-xs shadow-md shadow-blue-500/25 transition transform hover:-translate-y-0.5 active:translate-y-0">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        <span id="auto-detect-btn-text">📍 Auto-Detect My GPS Location</span>
+                    </button>
+
+                    <!-- GPS Coords Display -->
+                    <div id="gps-coords-display" class="hidden p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-[11px] text-emerald-800 font-mono font-bold flex items-center gap-2">
+                        <span>✅ GPS:</span>
+                        <span id="gps-coords-text">--</span>
+                    </div>
+
+                    <!-- Location Text Input -->
+                    <div>
+                        <input type="text" id="disaster-location" required maxlength="300"
+                            placeholder="Street, Village, District, State (auto-filled or type manually)"
+                            class="w-full border-2 border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-semibold focus:border-blue-500 focus:ring-0 focus:outline-none transition bg-white"
+                            oninput="validateReportForm()">
+                        <p class="text-[10px] text-slate-400 mt-1">Address is auto-filled when GPS is detected, or enter manually</p>
+                    </div>
+
+                    <!-- Hidden lat/lng -->
+                    <input type="hidden" id="disaster-lat">
+                    <input type="hidden" id="disaster-lng">
+                </div>
+
+                <!-- Section 3: Disaster Type & Help -->
+                <div class="space-y-3">
+                    <div class="flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-lg bg-orange-100 text-orange-700 flex items-center justify-center text-xs font-black">3</span>
+                        <span class="text-xs font-black text-slate-900 uppercase tracking-wider">Disaster Type</span>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-700 mb-1.5">Hazard Type <span class="text-red-500">*</span></label>
+                            <select id="disaster-type" required
+                                class="w-full border-2 border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-bold bg-white focus:border-orange-500 focus:ring-0 focus:outline-none transition">
+                                <option value="Flood">🌊 Monsoon Flood / Waterlogging</option>
+                                <option value="Cyclone">🌪️ Cyclone / Storm Surge</option>
+                                <option value="Landslide">⛰️ Landslide / Mudslide</option>
+                                <option value="Cloudburst / Urban Flooding">🌧️ Cloudburst / Urban Flood</option>
+                                <option value="Fire">🔥 Building / Industrial Fire</option>
+                                <option value="Building Collapse">🏚️ Building Collapse</option>
+                                <option value="Medical Emergency">🚑 Medical Crisis / Epidemic</option>
+                                <option value="Earthquake">🌋 Earthquake / Structural Damage</option>
+                                <option value="Forest Fire / Wildfire">🌲 Wildfire</option>
+                                <option value="Other">🆘 Other Urgent Danger</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-700 mb-1.5">Help Required <span class="text-red-500">*</span></label>
+                            <select id="report-relief-type" required
+                                class="w-full border-2 border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-bold text-red-700 bg-white focus:border-orange-500 focus:ring-0 focus:outline-none transition">
+                                <option value="Rescue Boat / Evacuation">🚤 Rescue Boat / Evacuation</option>
+                                <option value="Medical Emergency &amp; Ambulance">🚑 Medical &amp; Ambulance</option>
+                                <option value="Food Rations &amp; Clean Water">🍞 Food &amp; Drinking Water</option>
+                                <option value="Temporary Shelter &amp; Blankets">🏕️ Relief Shelter</option>
+                                <option value="Fire Response &amp; Hazmat">🔥 Fire Response</option>
+                                <option value="Debris Clearance &amp; Excavator">🚜 Debris Clearance</option>
+                                <option value="Power &amp; Communication Support">⚡ Power / Telecom Support</option>
+                                <option value="General Immediate Relief">🆘 General Emergency</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 4: Description -->
+                <div class="space-y-2">
+                    <div class="flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-black">4</span>
+                        <span class="text-xs font-black text-slate-900 uppercase tracking-wider">Situation Description <span class="text-red-500">*</span></span>
+                    </div>
+                    <textarea id="disaster-description" rows="4" required minlength="20" maxlength="2000"
+                        placeholder="Describe the emergency in detail: What happened? How many people are affected? What is the immediate danger? What help do you need urgently?&#10;&#10;e.g. Floodwater has entered ground floor. 6 family members stranded on rooftop. Need immediate boat rescue."
+                        class="w-full border-2 border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-medium focus:border-purple-500 focus:ring-0 focus:outline-none transition resize-none bg-white"
+                        oninput="updateDescCount(this); validateReportForm()"></textarea>
+                    <div class="flex justify-between items-center">
+                        <p class="text-[10px] text-slate-400">Minimum 20 characters. Be as specific as possible.</p>
+                        <span id="desc-char-count" class="text-[10px] font-mono text-slate-400">0/2000</span>
+                    </div>
+                </div>
+
+                <!-- Section 5: Photo Upload -->
+                <div class="space-y-2">
+                    <div class="flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-black">5</span>
+                        <span class="text-xs font-black text-slate-900 uppercase tracking-wider">Incident Photo <span class="text-slate-400 font-semibold normal-case">(optional but recommended)</span></span>
+                    </div>
+
+                    <!-- Drop Zone -->
+                    <div id="photo-drop-zone"
+                        class="border-2 border-dashed border-slate-300 hover:border-red-400 rounded-2xl p-6 text-center cursor-pointer transition bg-slate-50 hover:bg-red-50/40"
+                        onclick="document.getElementById('report-image-file').click()"
+                        ondragover="event.preventDefault(); this.classList.add('border-red-500','bg-red-50')"
+                        ondragleave="this.classList.remove('border-red-500','bg-red-50')"
+                        ondrop="handleImageDrop(event)">
+                        <div id="photo-drop-placeholder">
+                            <div class="text-3xl mb-2">📸</div>
+                            <p class="text-xs font-bold text-slate-600">Click or drag &amp; drop photo here</p>
+                            <p class="text-[10px] text-slate-400 mt-1">JPG, PNG, WEBP, HEIC • Max 10MB</p>
+                        </div>
+                        <div id="photo-preview-wrapper" class="hidden">
+                            <img id="photo-preview-img" src="" alt="Preview" class="mx-auto max-h-40 rounded-xl object-contain shadow-md">
+                            <div class="flex items-center justify-center gap-3 mt-3">
+                                <span id="photo-preview-name" class="text-[11px] font-semibold text-slate-600 font-mono truncate max-w-[180px]"></span>
+                                <button type="button" onclick="clearPhotoPreview(event)" class="text-[11px] text-red-500 font-bold hover:text-red-700 transition">✕ Remove</button>
+                            </div>
+                        </div>
+                    </div>
+                    <input type="file" id="report-image-file" accept="image/*" class="hidden" onchange="previewReportPhoto(this)">
+                </div>
+
+                <!-- Validation Status Bar -->
+                <div id="form-validation-bar" class="p-3 rounded-xl text-[11px] font-semibold hidden"></div>
+
+                <!-- Submit -->
+                <div class="pt-2 border-t border-slate-100 flex items-center justify-end gap-3">
+                    <button type="button" onclick="closeModal('modal-report-disaster')" class="px-4 py-2.5 text-slate-500 hover:text-slate-800 font-bold text-xs hover:bg-slate-100 rounded-xl transition">
+                        Cancel
+                    </button>
+                    <button type="submit" id="btn-submit-report" onclick="reportDisaster(event)"
+                        class="px-7 py-3 bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 text-white font-black text-xs rounded-xl shadow-lg shadow-red-500/25 transition transform hover:-translate-y-0.5 active:translate-y-0 flex items-center gap-2">
+                        <span>🚨</span>
+                        <span>Submit Emergency Report</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Register Shelter -->
+    <div id="modal-register-shelter"
+        class="hidden fixed inset-0 z-[99999] flex items-center justify-center p-4 modal-backdrop">
+        <div class="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                    <h3 class="text-lg font-extrabold text-slate-950">Register Relief Camp / Shelter</h3>
+                    <p class="text-xs text-slate-400 mt-0.5">Add designated school, hall, or stadium relief center</p>
+                </div>
+                <button onclick="closeModal('modal-register-shelter')"
+                    class="text-slate-400 hover:text-slate-600 text-xl font-bold p-1">&times;</button>
+            </div>
+            <form id="form-register-shelter" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Relief Camp Name *</label>
+                    <input type="text" id="shelter-name" required placeholder="e.g. Govt Higher Secondary School Camp"
+                        class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none transition">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">District / State *</label>
+                    <input type="text" id="shelter-location" required placeholder="e.g. Ernakulam District, Kerala"
+                        class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none transition">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Latitude</label>
+                        <input type="number" step="any" id="shelter-lat" placeholder="e.g. 10.0261"
+                            class="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Longitude</label>
+                        <input type="number" step="any" id="shelter-lng" placeholder="e.g. 76.3125"
+                            class="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Total Capacity (Beds) *</label>
+                        <input type="number" id="shelter-capacity" required min="1" placeholder="300"
+                            class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Current Occupancy</label>
+                        <input type="number" id="shelter-occupancy" min="0" value="0"
+                            class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Camp In-Charge Phone</label>
+                    <input type="text" id="shelter-contact" placeholder="+91-9876543210"
+                        class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                </div>
+                <div class="flex justify-end gap-2.5 pt-3 border-t border-slate-100">
+                    <button type="button" onclick="closeModal('modal-register-shelter')"
+                        class="px-4 py-2 text-slate-600 font-bold text-xs hover:bg-slate-100 rounded-xl transition">Cancel</button>
+                    <button type="submit"
+                        class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition">Register
+                        Camp</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Add Resource Inventory -->
+    <div id="modal-add-resource"
+        class="hidden fixed inset-0 z-[99999] flex items-center justify-center p-4 modal-backdrop">
+        <div class="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl space-y-5">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                    <h3 class="text-lg font-extrabold text-slate-950">Add Relief Warehouse Stock</h3>
+                    <p class="text-xs text-slate-400 mt-0.5">Register supplies arriving at central or district depots
+                    </p>
+                </div>
+                <button onclick="closeModal('modal-add-resource')"
+                    class="text-slate-400 hover:text-slate-600 text-xl font-bold p-1">&times;</button>
+            </div>
+            <form id="form-add-resource" onsubmit="addResource(event); return false;" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Supply Item Name *</label>
+                    <input type="text" id="resource-name" required
+                        placeholder="e.g. 20L Water Cans, Rice Bags (25kg), Life Jackets"
+                        class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none transition">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Category *</label>
+                    <select id="resource-category" required
+                        class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs bg-slate-50 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none transition">
+                        <option value="Drinking Water">Drinking Water</option>
+                        <option value="Food & Dry Rations">Food & Dry Rations</option>
+                        <option value="First Aid & Medical">First Aid & Medical / Antivenom</option>
+                        <option value="Rescue Boats & Life Jackets">Rescue Boats & Life Jackets</option>
+                        <option value="Tarpaulins & Tents">Tarpaulins & Tents</option>
+                        <option value="DG Power Generators">DG Power Generators / Torches</option>
+                    </select>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Quantity *</label>
+                        <input type="number" id="resource-quantity" required min="0" placeholder="500"
+                            class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Unit</label>
+                        <input type="text" id="resource-unit" required value="units" placeholder="cans, bags, kits"
+                            class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Storage Depot Location *</label>
+                    <input type="text" id="resource-location" required
+                        placeholder="e.g. State Disaster Depot, Central Zone"
+                        class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                </div>
+                <div class="flex justify-end gap-2.5 pt-3 border-t border-slate-100">
+                    <button type="button" onclick="closeModal('modal-add-resource')"
+                        class="px-4 py-2 text-slate-600 font-bold text-xs hover:bg-slate-100 rounded-xl transition">Cancel</button>
+                    <button type="submit"
+                        class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition">Add
+                        to Inventory</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Request Resource -->
+    <div id="modal-request-resource"
+        class="hidden fixed inset-0 z-[99999] flex items-center justify-center p-4 modal-backdrop">
+        <div class="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl space-y-5">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                    <h3 class="text-lg font-extrabold text-slate-950">Request Emergency Supplies</h3>
+                    <p class="text-xs text-slate-400 mt-0.5">Submit immediate request from camps or field coordinators
+                    </p>
+                </div>
+                <button onclick="closeModal('modal-request-resource')"
+                    class="text-slate-400 hover:text-slate-600 text-xl font-bold p-1">&times;</button>
+            </div>
+            <form id="form-request-resource" onsubmit="submitResourceRequest(event); return false;" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Supply Item Needed *</label>
+                    <input type="text" id="request-item-name" required
+                        placeholder="e.g. 50 Inflatable Boats, 200 Food Packets"
+                        class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none transition">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Quantity Needed *</label>
+                        <input type="number" id="request-quantity" required min="1" placeholder="50"
+                            class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Urgency Priority</label>
+                        <select id="request-urgency"
+                            class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs bg-slate-50 font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                            <option value="Critical">Critical (Immediate dispatch)</option>
+                            <option value="High">High (Within 6 hours)</option>
+                            <option value="Medium">Medium (Within 24 hours)</option>
+                            <option value="Low">Low</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Delivery Destination / Camp *</label>
+                    <input type="text" id="request-location" required placeholder="e.g. Relief Camp Sector 4, Aluva"
+                        class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Related Disaster ID (Optional)</label>
+                    <input type="number" id="request-disaster-id" placeholder="e.g. 1"
+                        class="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                </div>
+                <div class="flex justify-end gap-2.5 pt-3 border-t border-slate-100">
+                    <button type="button" onclick="closeModal('modal-request-resource')"
+                        class="px-4 py-2 text-slate-600 font-bold text-xs hover:bg-slate-100 rounded-xl transition">Cancel</button>
+                    <button type="submit"
+                        class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition">Submit
+                        Request</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Broadcast Alert -->
+    <div id="modal-broadcast-alert"
+        class="hidden fixed inset-0 z-[99999] flex items-center justify-center p-4 modal-backdrop">
+        <div class="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl space-y-5">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                    <h3 class="text-lg font-extrabold text-slate-950">Issue Warning Broadcast</h3>
+                    <p class="text-xs text-slate-400 mt-0.5">Send official public advisory across dashboard and
+                        emergency feed</p>
+                </div>
+                <button onclick="closeModal('modal-broadcast-alert')"
+                    class="text-slate-400 hover:text-slate-600 text-xl font-bold p-1">&times;</button>
+            </div>
+            <form id="form-broadcast-alert" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Alert Title *</label>
+                    <input type="text" id="alert-title" required placeholder="e.g. IMD Red Alert: Flash Flood Threat"
+                        class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-2 focus:ring-red-500 focus:outline-none transition">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Severity Level *</label>
+                        <select id="alert-severity" required
+                            class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs bg-slate-50 font-medium focus:ring-2 focus:ring-red-500 focus:outline-none transition">
+                            <option value="Critical Emergency">Critical Emergency</option>
+                            <option value="Warning">Warning (Red Alert)</option>
+                            <option value="Advisory">Advisory (Orange Alert)</option>
+                            <option value="Watch">Watch (Yellow Alert)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Target Region / State *</label>
+                        <input type="text" id="alert-region" required placeholder="e.g. Coastal Odisha & North Andhra"
+                            class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-2 focus:ring-red-500 focus:outline-none transition">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Public Broadcast Instructions *</label>
+                    <textarea id="alert-message" rows="3" required
+                        placeholder="Evacuate low-lying riverbanks immediately. Citizens are advised to seek shelter at designated relief centers..."
+                        class="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs focus:ring-2 focus:ring-red-500 focus:outline-none transition"></textarea>
+                </div>
+                <div class="flex justify-end gap-2.5 pt-3 border-t border-slate-100">
+                    <button type="button" onclick="closeModal('modal-broadcast-alert')"
+                        class="px-4 py-2 text-slate-600 font-bold text-xs hover:bg-slate-100 rounded-xl transition">Cancel</button>
+                    <button type="submit"
+                        class="px-5 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-md transition">Broadcast
+                        Alert</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Profile Completion & Mandatory Phone Number (Category 2) -->
+    <div id="modal-profile-completion"
+        class="hidden fixed inset-0 z-[99999] flex items-center justify-center p-4 modal-backdrop">
+        <div class="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl space-y-5">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div class="flex items-center gap-2.5">
+                    <div
+                        class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white font-black shadow-md shadow-amber-500/20">
+                        📱
+                    </div>
+                    <div>
+                        <h3 class="text-base font-extrabold text-slate-950">Complete Profile</h3>
+                        <p class="text-xs text-amber-600 font-bold">Mandatory Phone Number Required</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('modal-profile-completion')"
+                    class="text-slate-400 hover:text-slate-600 text-xl font-bold p-1">&times;</button>
+            </div>
+
+            <div class="p-3.5 bg-amber-50 rounded-2xl border border-amber-200/80 text-xs text-amber-900 space-y-1">
+                <div class="font-bold flex items-center gap-1.5">
+                    <span>⚠️</span>
+                    <span>National Disaster Response Requirement</span>
+                </div>
+                <p class="text-[11px] leading-relaxed text-amber-800">
+                    A verified phone number is mandatory to file emergency reports, report missing persons, or submit
+                    found suggestions.
+                </p>
+            </div>
+
+            <form id="form-profile-completion" onsubmit="handleProfileCompletion(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Full Name *</label>
+                    <input type="text" id="profile-name" required placeholder="Your Full Name"
+                        class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none transition">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Mandatory Mobile Phone Number *</label>
+                    <div class="relative">
+                        <div
+                            class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-xs font-bold text-slate-400">
+                            🇮🇳 +91
+                        </div>
+                        <input type="tel" id="profile-phone" required pattern="[0-9]{10}" maxlength="10"
+                            placeholder="9876543210 (10 digits)"
+                            class="w-full border border-slate-200 rounded-xl pl-16 pr-3.5 py-2.5 text-xs font-mono font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none transition">
+                    </div>
+                    <p class="text-[10px] text-slate-400 mt-1">This number travels with your reports for authority
+                        verification.</p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">State</label>
+                        <input type="text" id="profile-state" placeholder="e.g. Kerala, Odisha, Assam"
+                            class="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">District</label>
+                        <input type="text" id="profile-district" placeholder="e.g. Ernakulam, Puri, Cachar"
+                            class="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="pt-2 border-t border-slate-100">
+                    <span class="text-[11px] font-bold text-slate-500 block mb-2">Emergency Contact (Optional)</span>
+                    <div class="grid grid-cols-2 gap-3">
+                        <input type="text" id="profile-emergency-name" placeholder="Contact Person Name"
+                            class="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                        <input type="tel" id="profile-emergency-phone" placeholder="Emergency Phone"
+                            class="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-2.5 pt-3 border-t border-slate-100">
+                    <button type="button" onclick="closeModal('modal-profile-completion')"
+                        class="px-4 py-2 text-slate-600 font-bold text-xs hover:bg-slate-100 rounded-xl transition">Cancel</button>
+                    <button type="submit"
+                        class="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-md transition flex items-center gap-1.5">
+                        <span>Save & Verify Phone</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Authority Application (Category 3) -->
+    <div id="modal-authority-application"
+        class="hidden fixed inset-0 z-[99999] flex items-center justify-center p-4 modal-backdrop">
+        <div class="bg-white rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div class="flex items-center gap-2.5">
+                    <div
+                        class="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-600 to-indigo-700 flex items-center justify-center text-white font-black shadow-md shadow-purple-500/20">
+                        🛡️
+                    </div>
+                    <div>
+                        <h3 class="text-base font-extrabold text-slate-950">Official Authority Application</h3>
+                        <p class="text-xs text-purple-600 font-bold">Government / Disaster Agency Verification</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('modal-authority-application')"
+                    class="text-slate-400 hover:text-slate-600 text-xl font-bold p-1">&times;</button>
+            </div>
+
+            <div class="p-3.5 bg-purple-50 rounded-2xl border border-purple-200/80 text-xs text-purple-900 space-y-1">
+                <div class="font-bold flex items-center gap-1.5">
+                    <span>ℹ️</span>
+                    <span>Verification & Review Notice</span>
+                </div>
+                <p class="text-[11px] leading-relaxed text-purple-800">
+                    Applying sets your status to <strong>AUTHORITY_PENDING</strong>. An administrator must verify your
+                    official credentials before full command center access is activated.
+                </p>
+            </div>
+
+            <form id="form-authority-application" onsubmit="handleAuthorityApplication(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Organization / Agency Name *</label>
+                    <input type="text" id="auth-org-name" required
+                        placeholder="e.g. National Disaster Response Force (NDRF), Kerala SDMA, Fire & Rescue"
+                        class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-2 focus:ring-purple-500 focus:outline-none transition font-medium">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Official Designation *</label>
+                        <input type="text" id="auth-designation" required
+                            placeholder="e.g. Incident Commander, Sub-Inspector"
+                            class="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs focus:ring-2 focus:ring-purple-500 focus:outline-none font-medium">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">ID / Badge Number *</label>
+                        <input type="text" id="auth-badge-number" required placeholder="e.g. NDRF-2026-B4-092"
+                            class="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono font-bold focus:ring-2 focus:ring-purple-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Official Government / Agency
+                        Email</label>
+                    <input type="email" id="auth-official-email" placeholder="e.g. commander@ndrf.gov.in"
+                        class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:ring-2 focus:ring-purple-500 focus:outline-none transition">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Operational Purpose & Justification
+                        *</label>
+                    <textarea id="auth-justification" rows="3" required
+                        placeholder="Describe your jurisdiction and operational duties requiring verified disaster management access..."
+                        class="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs focus:ring-2 focus:ring-purple-500 focus:outline-none transition"></textarea>
+                </div>
+
+                <div class="flex justify-end gap-2.5 pt-3 border-t border-slate-100">
+                    <button type="button" onclick="closeModal('modal-authority-application')"
+                        class="px-4 py-2 text-slate-600 font-bold text-xs hover:bg-slate-100 rounded-xl transition">Cancel</button>
+                    <button type="submit"
+                        class="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-md transition flex items-center gap-1.5">
+                        <span>Submit Authority Application</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: User Account Profile & Information (Requirement 7) -->
+    <div id="modal-user-profile"
+        class="hidden fixed inset-0 z-[99999] flex items-center justify-center p-4 modal-backdrop">
+        <div class="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl space-y-6">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div class="flex items-center gap-3">
+                    <div
+                        class="w-10 h-10 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center text-xl font-bold">
+                        👤
+                    </div>
+                    <div>
+                        <h3 class="text-base font-extrabold text-slate-950">User Profile</h3>
+                        <p class="text-xs text-slate-400">Authenticated Account Details</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('modal-user-profile')"
+                    class="text-slate-400 hover:text-slate-600 text-xl font-bold p-1">&times;</button>
+            </div>
+
+            <!-- Profile Info Card -->
+            <div class="space-y-4">
+                <div class="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                    <img id="modal-profile-avatar"
+                        src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='50' fill='%232563eb'/><text x='50' y='62' font-size='40' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='bold'>👤</text></svg>" alt="Avatar"
+                        class="w-14 h-14 rounded-2xl border-2 border-white shadow-md object-cover">
+                    <div class="space-y-1">
+                        <div id="modal-profile-name" class="font-extrabold text-slate-950 text-sm">Citizen Name</div>
+                        <div id="modal-profile-email" class="text-xs text-slate-500 font-mono">user@example.com</div>
+                        <span id="modal-profile-role-badge"
+                            class="inline-block text-[9px] font-black uppercase px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">USER</span>
+                    </div>
+                </div>
+
+                <div class="space-y-2.5 text-xs divide-y divide-slate-100">
+                    <div class="flex items-center justify-between pt-2">
+                        <span class="text-slate-500 font-medium">Verified Phone:</span>
+                        <span id="modal-profile-phone" class="font-bold text-slate-900 font-mono">+91 --</span>
+                    </div>
+                    <div class="flex items-center justify-between pt-2">
+                        <span class="text-slate-500 font-medium">State / Region:</span>
+                        <span id="modal-profile-state" class="font-semibold text-slate-800">--</span>
+                    </div>
+                    <div class="flex items-center justify-between pt-2">
+                        <span class="text-slate-500 font-medium">District:</span>
+                        <span id="modal-profile-district" class="font-semibold text-slate-800">--</span>
+                    </div>
+                    <div class="flex items-center justify-between pt-2">
+                        <span class="text-slate-500 font-medium">Emergency Contact:</span>
+                        <span id="modal-profile-emergency" class="font-semibold text-slate-800">--</span>
+                    </div>
+                </div>
+
+                <!-- User Submitted Incident Reports Section -->
+                <div class="space-y-3 pt-3 border-t border-slate-100">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="text-base">🚨</span>
+                            <h4 class="font-extrabold text-slate-900 text-xs uppercase tracking-wider">My Submitted Reports</h4>
+                        </div>
+                        <span id="modal-user-reports-count" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-800 font-mono">0 Reports</span>
+                    </div>
+                    <div id="modal-user-reports-list" class="space-y-2 max-h-48 overflow-y-auto pr-1">
+                        <div class="p-4 text-center text-slate-400 text-xs">Loading submitted reports...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Profile Actions -->
+            <div class="pt-2 border-t border-slate-100 space-y-2.5">
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="closeModal('modal-user-profile'); openCompleteProfileModal()"
+                        class="w-full py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl font-bold text-xs transition text-center">
+                        ✏️ Edit Details
+                    </button>
+                    <button onclick="closeModal('modal-user-profile'); switchTab('user-dashboard')"
+                        class="w-full py-2.5 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold text-xs transition text-center">
+                        📊 Dashboard
+                    </button>
+                </div>
+                <button onclick="logout()"
+                    class="w-full py-2.5 px-4 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl font-extrabold text-xs transition flex items-center justify-center gap-2">
+                    <span>🚪</span>
+                    <span>Sign Out / Logout</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Controller JS -->
+    <script src="js/app.js"></script>
+</body>
+
+</html>
