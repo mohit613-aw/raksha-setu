@@ -1834,7 +1834,7 @@ function renderVerificationQueue(matches) {
                 <!-- Comparison Grid: Incoming Report vs Candidate Incident -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                     <!-- Incoming Report -->
-                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5">
                         <div class="flex items-center justify-between">
                             <span class="text-[11px] font-extrabold text-blue-700 uppercase tracking-wider">📥 Incoming Citizen Report #${report.id || m.report_id}</span>
                             <span class="text-[10px] px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold">${report.source || "WEB"}</span>
@@ -1842,6 +1842,21 @@ function renderVerificationQueue(matches) {
                         <div class="font-extrabold text-slate-950 text-sm">${report.type || "Hazard"}</div>
                         <p class="text-xs text-slate-700 font-semibold">📍 ${report.location || "Location unlisted"}</p>
                         <p class="text-xs text-slate-500 leading-snug">${report.description || "No description provided."}</p>
+                        
+                        ${report.image_url ? `
+                            <div class="pt-2">
+                                <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                                    <span>📸 Incident Photo Evidence</span>
+                                </div>
+                                <div class="relative group rounded-xl overflow-hidden border border-slate-200 bg-slate-900 max-h-48 flex items-center justify-center cursor-pointer shadow-sm" onclick="window.open('${report.image_url.startsWith('http') ? report.image_url : API_BASE + report.image_url}', '_blank')">
+                                    <img src="${report.image_url.startsWith('http') ? report.image_url : API_BASE + report.image_url}" alt="Incident Photo" class="max-h-48 w-full object-cover group-hover:scale-105 transition duration-200" onerror="this.parentElement.style.display='none'">
+                                    <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs font-bold gap-1.5">
+                                        <span>🔍</span> Click to View Full Photo
+                                    </div>
+                                </div>
+                            </div>
+                        ` : ''}
+
                         <div class="text-[11px] font-bold text-slate-700 pt-1">
                             <span>👥 Affected: ${report.people_affected_count || 1}</span> &bull; 
                             <span>🆘 Needs: ${(report.assistance_needed || []).join(", ") || "General"}</span>
@@ -3799,7 +3814,7 @@ async function loadUserDashboard() {
                             👥 ${r.people_affected_count} affected &bull; 🕒 ${new Date(r.created_at).toLocaleString("en-IN", {timeZone:"Asia/Kolkata"})}
                         </div>
                     </div>
-                    ${r.image_url ? `<img src="${r.image_url}" alt="Report photo" class="w-20 h-20 rounded-xl object-cover border border-slate-200 shrink-0">` : ''}
+                    ${r.image_url ? `<img src="${r.image_url.startsWith('http') ? r.image_url : API_BASE + r.image_url}" alt="Report photo" class="w-20 h-20 rounded-xl object-cover border border-slate-200 shrink-0 cursor-pointer hover:opacity-90 transition" onclick="window.open('${r.image_url.startsWith('http') ? r.image_url : API_BASE + r.image_url}', '_blank')">` : ''}
                 </div>
             `).join("");
         }
@@ -3929,6 +3944,15 @@ async function loadAuthorityDashboard() {
                         <span class="text-slate-400 text-[10px]">${new Date(r.created_at).toLocaleTimeString("en-IN", {timeZone:"Asia/Kolkata"})}</span>
                     </div>
                     <p class="text-slate-600 text-[11px]">📍 ${r.location}</p>
+                    ${r.description ? `<p class="text-slate-500 text-[11px] leading-snug">${r.description}</p>` : ''}
+                    ${r.image_url ? `
+                        <div class="mt-1.5 rounded-xl overflow-hidden border border-slate-200 max-h-36 bg-slate-900 flex items-center justify-center cursor-pointer group relative shadow-sm" onclick="window.open('${r.image_url.startsWith('http') ? r.image_url : API_BASE + r.image_url}', '_blank')">
+                            <img src="${r.image_url.startsWith('http') ? r.image_url : API_BASE + r.image_url}" alt="Report Photo" class="max-h-36 w-full object-cover group-hover:scale-105 transition duration-200" onerror="this.parentElement.style.display='none'">
+                            <div class="absolute bottom-1.5 right-1.5 bg-black/75 backdrop-blur text-white text-[9px] px-2 py-0.5 rounded-md font-mono font-bold flex items-center gap-1">
+                                <span>📸</span> View Full Photo
+                            </div>
+                        </div>
+                    ` : ''}
                     ${r.reporter_name ? `
                         <div class="p-2 bg-white rounded-xl border border-slate-100 text-[11px] flex items-center justify-between">
                             <span class="text-slate-700 font-semibold">👤 ${r.reporter_name}</span>
