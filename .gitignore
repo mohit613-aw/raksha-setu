@@ -9,3 +9,7 @@ __pycache__/
 backend/.env
 scratch/
 *.log
+backend/static/uploads/
+backend/disaster.db
+backend/disaster.db-shm
+backend/disaster.db-wal
