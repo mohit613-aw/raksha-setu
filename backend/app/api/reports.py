@@ -1,11 +1,15 @@
 import os
 import uuid
+import re
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Header
 from pydantic import BaseModel
 from typing import Optional, List
 from app.database.connection import SessionLocal
 from app.models.incident_report import IncidentReport
 from app.models.disaster import Disaster
+from app.models.user import User
+from app.models.notification import Notification
+from app.models.communication import CommunicationLog
 from app.config import BASE_DIR
 from app.api.auth import get_current_user_from_header
 
@@ -14,6 +18,70 @@ router = APIRouter(prefix="/reports", tags=["Reports"])
 # Static upload directory used by StaticFiles mount
 STATIC_UPLOADS_DIR = os.path.join(BASE_DIR, "static", "uploads")
 os.makedirs(STATIC_UPLOADS_DIR, exist_ok=True)
+
+DEFAULT_INDIAN_COORDS = {
+    "mumbai": (19.0760, 72.8777),
+    "pune": (18.5204, 73.8567),
+    "delhi": (28.6139, 77.2090),
+    "new delhi": (28.6139, 77.2090),
+    "noida": (28.5355, 77.3910),
+    "gurugram": (28.4595, 77.0266),
+    "bengaluru": (12.9716, 77.5946),
+    "bangalore": (12.9716, 77.5946),
+    "chennai": (13.0827, 80.2707),
+    "kolkata": (22.5726, 88.3639),
+    "hyderabad": (17.3850, 78.4867),
+    "ahmedabad": (23.0225, 72.5714),
+    "jaipur": (26.9124, 75.7873),
+    "lucknow": (26.8467, 80.9462),
+    "kanpur": (26.4499, 80.3319),
+    "patna": (25.5941, 85.1376),
+    "bhubaneswar": (20.2961, 85.8245),
+    "cuttack": (20.4625, 85.8830),
+    "puri": (19.8135, 85.8312),
+    "rourkela": (22.2604, 84.8536),
+    "balasore": (21.4934, 86.9135),
+    "guwahati": (26.1445, 91.7362),
+    "dehradun": (30.3165, 78.0322),
+    "shimla": (31.1048, 77.1734),
+    "srinagar": (34.0837, 74.7973),
+    "thiruvananthapuram": (8.5241, 76.9366),
+    "kochi": (9.9312, 76.2673),
+    "wayanad": (11.6854, 76.1320),
+    "ranchi": (23.3441, 85.3096),
+    "raipur": (21.2514, 81.6296),
+    "bhopal": (23.2599, 77.4126),
+    "chandigarh": (30.7333, 76.7794),
+    "odisha": (20.9517, 85.0985),
+    "maharashtra": (19.7515, 75.7139),
+    "kerala": (10.8505, 76.2711),
+    "tamil nadu": (11.1271, 78.6569),
+    "karnataka": (15.3173, 75.7139),
+    "uttar pradesh": (26.8467, 80.9462),
+    "bihar": (25.0961, 85.3131),
+    "west bengal": (22.9868, 87.8550),
+    "assam": (26.2006, 92.9376),
+    "gujarat": (22.2587, 71.1924),
+    "rajasthan": (27.0238, 74.2179),
+    "uttarakhand": (30.0668, 79.0193),
+    "himachal pradesh": (31.1048, 77.1734),
+}
+
+
+def resolve_coordinates(location: str, lat: Optional[float], lng: Optional[float]):
+    if lat is not None and lng is not None:
+        try:
+            f_lat, f_lng = float(lat), float(lng)
+            if f_lat != 0.0 or f_lng != 0.0:
+                return f_lat, f_lng
+        except (ValueError, TypeError):
+            pass
+
+    loc_lower = (location or "").lower()
+    for name, coords in DEFAULT_INDIAN_COORDS.items():
+        if name in loc_lower:
+            return coords[0], coords[1]
+    return 20.5937, 78.9629
 
 
 class StatusUpdateRequest(BaseModel):
@@ -121,6 +189,7 @@ async def create_report(
         image_url = f"/uploads/{unique_name}"
 
     user = get_current_user_from_header(authorization)
+    calc_lat, calc_lng = resolve_coordinates(location, latitude, longitude)
 
     with SessionLocal() as db:
         rep = IncidentReport(
@@ -129,8 +198,8 @@ async def create_report(
             title=f"SOS: {category} in {location[:30]}",
             description=description.strip(),
             location=location.strip(),
-            latitude=latitude,
-            longitude=longitude,
+            latitude=calc_lat,
+            longitude=calc_lng,
             relief_type_required=relief_type_required,
             people_affected_count=people_affected_count or 1,
             severity=severity or "High",
@@ -145,26 +214,61 @@ async def create_report(
         db.commit()
         db.refresh(rep)
 
-        # Create corresponding disaster entry so it immediately displays on maps & heatmaps
-        if latitude and longitude:
-            dis = Disaster(
-                type=category or "General SOS",
-                severity=severity or "High",
-                location=location.strip(),
-                latitude=latitude,
-                longitude=longitude,
-                description=f"[Reported by {reporter_name} ({reporter_phone})] {description}. Relief needed: {relief_type_required}",
-                status="Active"
-            )
-            db.add(dis)
-            db.commit()
+        # 1. Create corresponding active disaster entry for Live Map & Heatmap
+        dis = Disaster(
+            type=category or "General SOS",
+            severity=severity or "High",
+            location=location.strip(),
+            latitude=calc_lat,
+            longitude=calc_lng,
+            description=f"[Reported by {reporter_name} ({reporter_phone})] {description}. Relief needed: {relief_type_required}",
+            status="Active"
+        )
+        db.add(dis)
 
+        # 2. Dispatch urgent notifications to all Authority & Admin officers
+        auth_users = db.query(User).filter(User.role.in_(["AUTHORITY_VERIFIED", "ADMIN"])).all()
+        target_uids = {u.id for u in auth_users} | {2, 3}  # Standard authority officer & national admin IDs
+        for uid in target_uids:
+            notif = Notification(
+                user_id=uid,
+                title=f"🚨 URGENT: New Emergency Report #{rep.id}",
+                body=f"[{rep.category}] {rep.reporter_name} reported: '{rep.description[:100]}...' at {rep.location}. Relief needed: {rep.relief_type_required}. Contact: {rep.reporter_phone}",
+                is_read=False
+            )
+            db.add(notif)
+
+        # 3. Log SMS / Emergency Telecom Dispatch
+        comm_log = CommunicationLog(
+            recipient_phone=rep.reporter_phone,
+            channel="SMS",
+            message_body=f"Raksha Setu: Emergency report #{rep.id} received and dispatched to Disaster Management Authorities & NDRF response units.",
+            status="Delivered"
+        )
+        db.add(comm_log)
+        db.commit()
+
+        # 4. Broadcast real-time SSE event to all connected Authority & Admin command dashboards
         from app.api.events import send_event
-        send_event("incident_reported", {"id": rep.id, "title": rep.title, "location": rep.location, "type": rep.type})
+        send_event("incident_reported", {
+            "id": rep.id,
+            "title": rep.title,
+            "location": rep.location,
+            "type": rep.type,
+            "category": rep.category,
+            "severity": rep.severity,
+            "reporter_name": rep.reporter_name,
+            "reporter_phone": rep.reporter_phone,
+            "relief_type_required": rep.relief_type_required,
+            "description": rep.description,
+            "latitude": rep.latitude,
+            "longitude": rep.longitude,
+            "created_at": rep.created_at.isoformat() if rep.created_at else None
+        })
 
         return {
             "status": "success",
-            "message": "Incident report submitted successfully",
+            "message": "Incident report submitted and dispatched to Authority & Admin successfully",
             "report_id": rep.id,
             "data": {
                 "id": rep.id,

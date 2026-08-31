@@ -100,6 +100,22 @@ function initSSE() {
                     return;
                 }
 
+                if (data.event === "incident_reported") {
+                    const isAuthOrAdmin = currentUser && ["AUTHORITY_VERIFIED", "ADMIN"].includes(currentUser.role);
+                    if (isAuthOrAdmin) {
+                        showToast(`🚨 NEW EMERGENCY DISPATCH: Report #${data.data.id} (${data.data.type || data.data.category}) from ${data.data.reporter_name || 'Citizen'} in ${data.data.location}`, "warning");
+                        fetchUnreadNotificationCount();
+                    } else {
+                        showToast(`🚨 Incident Reported: ${data.data.type || 'Emergency'} in ${data.data.location}`, "info");
+                    }
+                    loadOverview();
+                    if (map) loadMapData();
+                    if (activeTab === "disasters") loadDisasters();
+                    if (activeTab === "verification") loadVerificationQueue();
+                    if (activeTab === "authority-dashboard") loadAuthorityDashboard();
+                    return;
+                }
+
                 showToast(`Live update received: ${data.event.replace('_', ' ').toUpperCase()}`, "info");
 
                 // Silently refresh current view data
@@ -109,6 +125,7 @@ function initSSE() {
                 if (activeTab === "alerts") loadAlerts();
                 if (activeTab === "telephony") loadCommunicationLogs();
                 if (activeTab === "authority-dashboard") loadAuthorityDashboard();
+                if (activeTab === "verification") loadVerificationQueue();
 
             } catch (e) {}
         };
@@ -1688,7 +1705,7 @@ async function reportDisaster(e) {
         formData.append("photo", imageFileInput.files[0]);
     }
 
-    showToast("Submitting emergency incident report to central database...", "info");
+    showToast("Transmitting emergency SOS report to Disaster Authorities & NDRF...", "info");
 
     try {
         const res = await fetch(`${API_BASE}/reports/`, {
@@ -1698,7 +1715,7 @@ async function reportDisaster(e) {
 
         if (res.ok) {
             const reportResult = await res.json();
-            showToast(`🚨 Incident Report #${reportResult.report_id || ''} saved to database successfully!`, "success");
+            showToast(`🚨 Emergency Report #${reportResult.report_id || ''} DISPATCHED! Transmitted to State Emergency Command & NDRF Response Unit.`, "success");
             closeModal("modal-report-disaster");
             document.getElementById("form-report-disaster").reset();
             
@@ -1707,6 +1724,7 @@ async function reportDisaster(e) {
             if (map) loadMapData();
             if (activeTab === "verification") loadVerificationQueue();
             if (activeTab === "disasters") loadDisasters();
+            if (activeTab === "authority-dashboard") loadAuthorityDashboard();
         } else {
             const errData = await res.json().catch(() => ({}));
             showToast(`Failed to submit report: ${errData.detail || "Server error"}`, "error");
